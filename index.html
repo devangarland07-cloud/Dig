@@ -250,8 +250,7 @@
                     <div class="flex items-center gap-3">
                         <div id="user-avatar-mobile" class="w-8 h-8 rounded-full bg-azure/20 flex items-center justify-center text-azure font-black italic text-xs">U</div>
                         <div class="flex flex-col">
-                            <span id="mobile-vessel-name-display" class="text-[10px] font-black italic text-azure uppercase tracking-wider leading-none">M/Y EXPLORER</span>
-                            <div class="vessel-selector-container mobile-selector-mini mt-1 opacity-80"></div>
+                            <span id="mobile-vessel-name-display" class="text-[13px] font-black italic text-azure uppercase tracking-wider leading-none">M/Y EXPLORER</span>
                             <p id="mobile-user-name" class="text-[9px] font-bold text-slate-400 uppercase italic opacity-60">Guest User</p>
                         </div>
             </div>
@@ -280,7 +279,11 @@
         </header>
 
         <!-- Dynamic Content: Logs View -->
-        <div id="view-logs" class="p-4 sm:p-8 max-w-6xl mx-auto space-y-4 sm:space-y-10 reveal">
+        <div id="view-logs" class="p-4 sm:p-8 max-w-6xl mx-auto space-y-4 sm:space-y-6 reveal">
+            <!-- Mobile Primary Switcher (Outside Backdrop) -->
+            <div class="lg:hidden mb-2">
+                <div class="vessel-selector-container mobile-selector-primary"></div>
+            </div>
             
             <div class="flex overflow-x-auto gap-2 mb-8 pb-2 scrollbar-none">
                 <button data-category="All" class="filter-btn flex-shrink-0 px-5 py-2.5 rounded-2xl bg-azure text-white text-xs font-bold shadow-lg shadow-azure/20 transition-all">All Operations</button>
