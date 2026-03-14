@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+    <title>DIG Yacht Management Software — Technical Terminal</title>
+    
+    <!-- Settings Overlay -->
+    <div id="modal-settings" class="fixed inset-0 z-[250] hidden items-center justify-center p-4 sm:p-6">
+        <div class="absolute inset-0 bg-[#050b14]/90 backdrop-blur-sm" onclick="if(settingsManager.fleet.length > 0) app.closeSettingsModal()"></div>
+        <div class="relative w-full max-w-lg glass-modal rounded-[40px] p-8 sm:p-12 shadow-2xl reveal border border-white/10">
+            <button id="settings-close-btn" onclick="if(settingsManager.fleet.length > 0) app.closeSettingsModal()" class="absolute top-8 right-8 text-slate-500 hover:text-white transition-colors bg-white/5 hover:bg-white/10 p-3 rounded-2xl">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+            </button>
+            <h2 id="settings-modal-title" class="text-3xl font-black italic text-white uppercase tracking-tighter mb-2">Vessel Profile</h2>
+            <p id="settings-modal-desc" class="text-slate-400 text-sm mb-6 font-medium">Update the fleet identity configurations.</p>
+            
+            <div id="settings-tabs-container" class="flex gap-2 mb-8 bg-white/5 p-1 rounded-2xl">
+                <button type="button" id="tab-edit-vessel" onclick="app.setSettingsMode('edit')" class="flex-1 py-2 rounded-xl bg-azure text-white text-[10px] font-black tracking-widest uppercase transition-all shadow-md">Edit Current</button>
+                <button type="button" id="tab-new-vessel" onclick="app.setSettingsMode('new')" class="flex-1 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 text-[10px] font-black tracking-widest uppercase transition-all">Add New Vessel</button>
+            </div>
+            
+            <form id="settings-form" class="space-y-6" data-mode="edit">
+                <div class="space-y-2">
+                    <label class="block text-[10px] font-black uppercase tracking-widest text-slate-500">Asset ID / Name</label>
+                    <input type="text" name="vesselName" id="setting-vessel-name" required class="w-full form-input bg-[#0a192f]/50 border-white/5 text-lg font-bold italic" placeholder="e.g. DIG FLEET 01">
+                </div>
+                
+                <div class="space-y-2">
+                    <!-- Image Upload Area -->
+                    <div class="space-y-4">
+                        <label class="block text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 mb-2">Sidebar Backdrop Image</label>
+                        <div class="relative group/upload h-32 rounded-2xl border-2 border-dashed border-white/10 hover:border-azure/40 transition-all overflow-hidden flex flex-col items-center justify-center bg-white/5">
+                            <input type="file" id="setting-backdrop" accept="image/*" class="absolute inset-0 opacity-0 cursor-pointer z-10">
+                            <div id="settings-preview-img-bg" class="absolute inset-0 z-0 bg-cover bg-center opacity-40"></div>
+                            <div class="relative z-0 flex flex-col items-center pointer-events-none">
+                                <svg class="w-6 h-6 text-azure mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                                <p id="setting-file-name" class="text-[9px] font-black uppercase tracking-widest text-slate-400">Click to upload image</p>
+                            </div>
+                        </div>
+                        <button type="button" onclick="settingsManager.resetToDefaults()" class="w-full py-2 rounded-xl text-[9px] font-black uppercase tracking-widest text-slate-500 hover:text-azure transition-all">
+                            [ Reset to Default Marine Theme ]
+                        </button>
+                    </div>
+                </div>
+
+                <div class="pt-6 border-t border-white/5">
+                    <button type="submit" class="w-full py-5 rounded-2xl bg-azure hover:bg-blue-400 text-white font-black italic tracking-widest uppercase transition-all shadow-lg hover:shadow-azure/20 hover:-translate-y-1">
+                        Save Configurations
+                    </button>
+                    <div class="flex gap-2 mt-4">
+                        <button type="button" onclick="settingsManager.resetToDefaults()" class="flex-1 py-4 rounded-2xl bg-white/5 hover:bg-orange-500/20 text-slate-400 hover:text-orange-500 font-bold tracking-widest uppercase text-xs transition-all border border-transparent hover:border-orange-500/30">
+                            Reset Image
+                        </button>
+                        <div id="delete-vessel-container" class="flex-1 flex hidden">
+                            <button type="button" id="btn-init-delete" onclick="app.initDeleteVessel()" class="w-full py-4 rounded-2xl bg-red-900/20 hover:bg-red-500/20 text-red-500 font-bold tracking-widest uppercase text-xs transition-all border border-red-900/30 hover:border-red-500/50">
+                                Delete Vessel
+                            </button>
+                            <div id="btn-confirm-delete" class="hidden w-full flex gap-2">
+                                <button type="button" onclick="app.exportToCSV()" class="flex-1 py-4 rounded-xl bg-azure hover:bg-blue-500 text-white font-black tracking-widest uppercase text-[10px] transition-all shadow-lg shadow-azure/20">
+                                    Export Logs
+                                </button>
+                                <button type="button" onclick="settingsManager.deleteCurrentVessel()" class="flex-1 py-4 rounded-xl bg-red-600 hover:bg-red-500 text-white font-black tracking-widest uppercase text-[10px] transition-all shadow-lg shadow-red-500/30">
+                                    Confirm Delete
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    
+    <!-- Meta -->
+    <meta name="description" content="Premium DIG fleet management terminal">
+    <link rel="icon" type="image/png" href="./assets/logo.jpg">
+    
+    <!-- Fonts & Core Utilities -->
+    <!-- Fonts: Outfit for Headers, Inter for Body, JetBrains Mono for Tech Data -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:ital,wght@0,400;0,700;1,400;1,700&family=Outfit:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <!-- Custom Style System -->
+    <link rel="stylesheet" href="./css/style.css">
+    
+    <script>
+        // Modern Style Configuration
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        deepNavy: '#0a192f',
+                        azure: '#3b82f6',
+                        slateLight: '#94a3b8',
+                        ocean: '#1e3a8a',
+                    },
+                    animation: {
+                        'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+                    }
+                }
+            }
+        }
+
+        // Cache & State Protection
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.getRegistrations().then(regs => regs.forEach(r => r.unregister()));
+        }
+    </script>
+</head>
+<body class="bg-[#050b14] text-slate-200 min-h-screen font-['Inter'] overflow-x-hidden">
+
+    <!-- Premium Glow Effects -->
+    <div class="fixed top-0 left-0 w-full h-full pointer-events-none z-0">
+        <div class="absolute -top-40 -left-40 w-96 h-96 bg-azure/10 rounded-full blur-[120px]"></div>
+        <div class="absolute top-1/2 -right-40 w-80 h-80 bg-ocean/10 rounded-full blur-[100px]"></div>
+    </div>
+
+    <aside class="hidden lg:flex flex-col w-80 h-screen fixed left-0 top-0 glass-sidebar border-r border-white/5 z-30">
+        <!-- Scenic Header Backdrop -->
+        <div class="relative p-10 overflow-hidden border-b border-white/5 group/header">
+            <!-- Background Image Area -->
+            <div class="absolute inset-0 z-0 bg-[#0a192f]">
+                <img src="" alt="Marine Backdrop" class="w-full h-full object-cover opacity-80 transition-all duration-700 hidden">
+                <div class="absolute inset-0 bg-gradient-to-b from-[#0a192f]/40 via-[#0a192f]/60 to-[#0a192f]"></div>
+                <div class="absolute inset-0 bg-gradient-to-r from-transparent via-[#0a192f]/20 to-[#0a192f]/80"></div>
+            </div>
+            
+            <!-- Settings Button -->
+            <button onclick="app.openSettingsModal()" class="absolute top-4 right-4 z-20 w-8 h-8 rounded-xl bg-white/5 backdrop-blur-md border border-white/10 flex items-center justify-center text-white/50 hover:bg-white/10 hover:text-white transition-all opacity-0 group-hover/header:opacity-100 hover:rotate-90 shadow-lg">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+            </button>
+
+            <div class="relative z-10 flex items-center gap-4 mb-2">
+                <div class="relative shadow-2xl group/emblem">
+                    <div class="w-12 h-12 rounded-2xl bg-[#0a192f] border border-white/20 flex items-center justify-center group-hover/emblem:border-azure transition-all duration-500 overflow-hidden">
+                        <img src="./assets/branding/logo.png" alt="DIG Logo" class="w-full h-full object-cover">
+                    </div>
+                </div>
+                <div>
+                    <h1 id="sidebar-vessel-name" class="font-bold text-xl tracking-tight text-white uppercase italic drop-shadow-lg truncate max-w-[180px]">FLEET ASSET</h1>
+                    <p class="text-[9px] text-azure font-black tracking-[0.3em] uppercase opacity-90 drop-shadow-md">DIG Yacht Management Software</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="px-10 pt-8 flex-1">
+            <div class="mb-12 space-y-4">
+                <div class="glass-compact p-5 rounded-2xl border border-white/5 flex items-center gap-4">
+                    <div class="w-10 h-10 rounded-full bg-azure/20 flex items-center justify-center text-azure font-black italic">U</div>
+                    <div class="flex-1 min-w-0">
+                        <p id="current-user-name" class="text-xs font-bold text-white truncate uppercase italic">Guest User</p>
+                        <button onclick="auth.logout()" class="text-[9px] text-slate-500 hover:text-red-400 font-black uppercase tracking-widest transition-all">Sign Out</button>
+                    </div>
+                </div>
+                
+                <!-- Fleet Selector Module -->
+                <div class="glass-compact p-4 rounded-2xl border border-white/5">
+                    <label class="block text-[9px] font-black uppercase tracking-widest text-slate-500 mb-2">Active Vessel</label>
+                    <div class="vessel-selector-container w-full"></div>
+                </div>
+            </div>
+
+            <nav class="space-y-4">
+                <button data-view="logs" class="nav-btn w-full flex items-center gap-5 px-6 py-5 rounded-[28px] text-white bg-white/5 border border-white/5 shadow-inner transition-all group font-header">
+                    <svg class="w-6 h-6 opacity-70 group-hover:opacity-100 transition-all text-azure" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path></svg>
+                    <span class="font-bold text-sm tracking-wide">Maintenance Logs</span>
+                </button>
+                <button data-view="alarms" class="nav-btn w-full flex items-center gap-5 px-6 py-5 rounded-[28px] text-slate-400 hover:text-white hover:bg-white/5 transition-all group font-header">
+                    <svg class="w-6 h-6 opacity-40 group-hover:opacity-100 transition-all" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+                    <span class="font-bold text-sm tracking-wide">Alarm Event Log</span>
+                </button>
+                <button data-view="dashboard" class="nav-btn w-full flex items-center gap-5 px-6 py-5 rounded-[28px] text-slate-400 hover:text-white hover:bg-white/5 transition-all group font-header">
+                    <svg class="w-6 h-6 opacity-40 group-hover:opacity-100 transition-all" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.488 9H15V3.512A9.025 9.025 0 0120.488 9z"></path></svg>
+                    <span class="font-bold text-sm tracking-wide">Asset Health Terminal</span>
+                </button>
+            </nav>
+        </div>
+        
+        <div class="mt-auto p-8 space-y-6">
+            <div class="glass-compact p-5 rounded-2xl border border-white/5">
+                <p class="text-[10px] uppercase font-bold text-slate-500 mb-3 tracking-widest">Connectivity</p>
+                <div class="flex items-center justify-between">
+                    <span class="text-xs font-semibold text-white/80 italic">Status: Fully Operational</span>
+                    <div class="relative">
+                        <div class="absolute inset-0 bg-green-500 rounded-full animate-ping opacity-25"></div>
+                        <div class="w-2.5 h-2.5 rounded-full bg-green-500 shadow-[0_0_12px_rgba(34,197,94,0.8)] relative"></div>
+                    </div>
+                </div>
+            </div>
+            <button onclick="app.exportToCSV()" class="w-full py-4 rounded-2xl bg-azure text-white border border-white/10 text-xs font-bold hover:bg-blue-600 transition-all flex items-center justify-center gap-3 active:scale-95 shadow-lg shadow-azure/20">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2a4 4 0 014-4h1h2a2 2 0 012 2v2m-6-9l3 3m0 0l3-3m-3 3V3"></path></svg>
+                Export to Excel (CSV)
+            </button>
+            <button onclick="app.exportData()" class="w-full py-3 rounded-xl bg-white/5 text-slate-400 border border-white/5 text-[10px] font-bold hover:text-white transition-all">
+                Backup as JSON
+            </button>
+        </div>
+    </aside>
+
+    <!-- Main Workspace -->
+    <main class="lg:ml-80 pb-28 lg:pb-0 relative z-10">
+        
+        <!-- Premium Header Area -->
+        <header class="sticky top-0 z-20 p-6 flex flex-col md:flex-row md:items-center justify-between gap-6 glass-header mb-8">
+            <!-- Mobile Header Controls (Visible only on lg-) -->
+            <div class="lg:hidden relative overflow-hidden rounded-[28px] p-6 border border-white/5 group/mobile-header mb-4">
+                <!-- Mobile Backdrop -->
+                <div class="absolute inset-0 z-0 bg-[#050b14]">
+                    <img src="" alt="Marine Backdrop" class="w-full h-full object-cover opacity-50 transition-all duration-700 hidden">
+                    <div class="absolute inset-0 bg-gradient-to-b from-[#050b14]/60 to-[#050b14]"></div>
+                </div>
+
+                <div class="relative z-10 flex flex-col sm:flex-row items-start sm:items-center gap-4 w-full justify-between pb-4 border-b border-white/5">
+                    <div class="flex items-center gap-3">
+                        <div class="w-10 h-10 rounded-full bg-azure/20 flex items-center justify-center text-azure font-black italic">U</div>
+                        <div>
+                            <p id="mobile-user-name" class="text-xs font-bold text-white uppercase italic">Guest User</p>
+                            <button onclick="auth.logout()" class="text-[9px] text-slate-500 hover:text-red-400 font-black uppercase tracking-widest transition-all">Sign Out</button>
+                        </div>
+                    </div>
+                    <button onclick="app.openSettingsModal()" class="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-slate-400 hover:text-white transition-all shadow-lg">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                    </button>
+                </div>
+                <div class="w-full sm:w-auto">
+                    <div class="flex flex-col">
+                        <span id="mobile-vessel-name" class="text-xs font-black italic text-azure uppercase tracking-tight mb-1">M/Y EXPLORER</span>
+                        <div class="vessel-selector-container w-full min-w-[200px]"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Global Search Box -->
+            <div class="relative flex-1 max-w-2xl w-full">
+                <span class="absolute left-6 top-1/2 -translate-y-1/2 text-slate-500">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                </span>
+                <input id="search-input" type="text" placeholder="Filter through asset logs..." class="w-full bg-slate-900/40 border border-white/10 rounded-[24px] py-4 pl-14 pr-6 text-sm focus:outline-none focus:ring-2 focus:ring-azure/40 focus:border-azure/60 transition-all font-medium">
+            </div>
+            
+            <div class="flex items-center gap-4">
+                <button onclick="app.openModal()" class="bg-azure hover:bg-blue-600 text-white px-8 py-4 rounded-[24px] font-bold shadow-2xl shadow-azure/30 transition-all flex items-center gap-3 hover:-translate-y-0.5 active:translate-y-0 text-xs sm:text-sm">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+                    New Maintenance Entry
+                </button>
+                <button onclick="app.openAlarmModal()" class="bg-rose-600 hover:bg-rose-700 text-white px-8 py-4 rounded-[24px] font-bold shadow-2xl shadow-rose-600/30 transition-all flex items-center gap-3 hover:-translate-y-0.5 active:translate-y-0 text-xs sm:text-sm">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+                    New Alarm Event
+                </button>
+            </div>
+        </header>
+
+        <!-- Dynamic Content: Logs View -->
+        <div id="view-logs" class="p-8 max-w-6xl mx-auto space-y-10 reveal">
+            
+            <div class="flex overflow-x-auto gap-2 mb-8 pb-2 scrollbar-none">
+                <button data-category="All" class="filter-btn flex-shrink-0 px-5 py-2.5 rounded-2xl bg-azure text-white text-xs font-bold shadow-lg shadow-azure/20 transition-all">All Operations</button>
+                <button data-category="Engineering" class="filter-btn flex-shrink-0 px-5 py-2.5 rounded-2xl bg-white/5 border border-white/5 text-slate-400 text-xs font-bold hover:bg-white/10 hover:text-white transition-all">Engineering</button>
+                <button data-category="Deck" class="filter-btn flex-shrink-0 px-5 py-2.5 rounded-2xl bg-white/5 border border-white/5 text-slate-400 text-xs font-bold hover:bg-white/10 hover:text-white transition-all">Deck</button>
+                <button data-category="Interior" class="filter-btn flex-shrink-0 px-5 py-2.5 rounded-2xl bg-white/5 border border-white/5 text-slate-400 text-xs font-bold hover:bg-white/10 hover:text-white transition-all">Interior</button>
+                <button data-category="Electrical" class="filter-btn flex-shrink-0 px-5 py-2.5 rounded-2xl bg-white/5 border border-white/5 text-slate-400 text-xs font-bold hover:bg-white/10 hover:text-white transition-all">Electrical</button>
+                <button data-category="Plumbing" class="filter-btn flex-shrink-0 px-5 py-2.5 rounded-2xl bg-white/5 border border-white/5 text-slate-400 text-xs font-bold hover:bg-white/10 hover:text-white transition-all">Plumbing</button>
+                <button data-category="Safety" class="filter-btn flex-shrink-0 px-5 py-2.5 rounded-2xl bg-white/5 border border-white/5 text-slate-400 text-xs font-bold hover:bg-white/10 hover:text-white transition-all">Safety</button>
+                <button data-category="HVAC" class="filter-btn flex-shrink-0 px-5 py-2.5 rounded-2xl bg-white/5 border border-white/5 text-slate-400 text-xs font-bold hover:bg-white/10 hover:text-white transition-all">HVAC</button>
+            </div>
+
+            <!-- Fleet History Grid -->
+            <div id="log-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                <!-- Logs will be rendered here -->
+            </div>
+        </div>
+
+        <!-- Dynamic Content: Alarm Log View -->
+        <div id="view-alarms" class="hidden p-8 max-w-6xl mx-auto space-y-10 reveal">
+            <div id="alarm-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                <!-- Alarms will be rendered here -->
+            </div>
+        </div>
+
+        <!-- Dynamic Content: Dashboard View -->
+        <div id="view-dashboard" class="hidden p-8 max-w-6xl mx-auto space-y-12 reveal">
+            <header class="flex items-end gap-3 mb-4">
+                <h2 class="text-4xl font-black italic tracking-tighter text-white uppercase">Vessel Health</h2>
+                <div class="h-[2px] flex-1 bg-gradient-to-r from-azure/50 to-transparent mb-3 opacity-30"></div>
+            </header>
+            
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-6">
+                <div id="card-total" class="stat-card p-6 rounded-[28px] glass-card border border-white/5 group hover:border-azure/20 transition-all cursor-pointer hover:scale-105 active:scale-95 reveal stagger-1">
+                    <div class="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center mb-4 group-hover:bg-azure group-hover:text-white transition-all shadow-lg text-slate-500">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
+                    </div>
+                    <p class="text-[9px] text-slate-500 uppercase font-black tracking-widest mb-1 font-header">Fleet Logs</p>
+                    <p id="stat-total" class="text-4xl font-black italic font-header text-white">0</p>
+                </div>
+                <div id="card-alarms" class="stat-card p-6 rounded-[28px] glass-card border border-rose-500/20 group hover:border-rose-500/40 transition-all cursor-pointer hover:scale-105 active:scale-95 reveal stagger-2">
+                    <div class="w-10 h-10 rounded-xl bg-rose-500/10 flex items-center justify-center mb-4 text-rose-500 shadow-lg shadow-rose-500/20 group-hover:bg-rose-600 group-hover:text-white">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+                    </div>
+                    <p class="text-[9px] text-slate-500 uppercase font-black tracking-widest mb-1 font-header text-rose-500/60">Alarm Events</p>
+                    <p id="stat-alarms" class="text-4xl font-black italic text-rose-600 font-header">0</p>
+                </div>
+                <div id="card-pending" class="stat-card p-6 rounded-[28px] glass-card border border-white/5 group hover:border-azure/20 transition-all cursor-pointer hover:scale-105 active:scale-95 reveal stagger-3">
+                    <div class="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center mb-4 text-azure shadow-lg shadow-azure/20 group-hover:bg-azure group-hover:text-white">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                    </div>
+                    <p class="text-[9px] text-slate-500 uppercase font-black tracking-widest mb-1 font-header">Items Pending</p>
+                    <p id="stat-pending" class="text-4xl font-black italic text-azure font-header">0</p>
+                </div>
+                <div id="card-completed" class="stat-card p-6 rounded-[28px] glass-card border border-white/5 group hover:border-azure/20 transition-all cursor-pointer hover:scale-105 active:scale-95 reveal stagger-4">
+                    <div class="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center mb-4 text-green-500 shadow-lg shadow-green-500/20 group-hover:bg-green-500 group-hover:text-white">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                    </div>
+                    <p class="text-[9px] text-slate-500 uppercase font-black tracking-widest mb-1 font-header">Tasks Completed</p>
+                    <p id="stat-completed" class="text-4xl font-black italic text-green-500 font-header">0</p>
+                </div>
+                <div id="card-critical" class="stat-card p-6 rounded-[28px] glass-card border border-red-500/20 group hover:border-red-500/40 transition-all cursor-pointer hover:scale-105 active:scale-95 reveal stagger-5">
+                    <div class="w-10 h-10 rounded-xl bg-red-500/10 flex items-center justify-center mb-4 text-red-500 animate-[pulse_2s_ease-in-out_infinite] shadow-lg shadow-red-500/30 group-hover:bg-red-500 group-hover:text-white group-hover:animate-none">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+                    </div>
+                    <p class="text-[9px] text-slate-500 uppercase font-black tracking-widest mb-1 font-header">Critical Alerts</p>
+                    <p id="stat-critical" class="text-4xl font-black italic text-red-500 font-header">0</p>
+                </div>
+            </div>
+
+            <div class="grid lg:grid-cols-1 gap-8">
+                <div class="glass-card p-12 rounded-[48px] border border-white/5 flex flex-col md:flex-row items-center gap-12">
+                    <div class="flex-1 space-y-4">
+                        <h3 class="text-3xl font-black italic text-white leading-tight">Maintenance<br>Efficiency Index</h3>
+                        <p class="text-slate-400 text-sm max-w-xs leading-relaxed">Quantifying operational readiness through real-time maintenance log analysis.</p>
+                        <div class="pt-6 flex flex-wrap gap-8">
+                            <div>
+                                <p class="text-[10px] uppercase font-bold text-slate-500 tracking-widest mb-1">Current Ratio</p>
+                                <p id="stat-efficiency" class="text-xl font-bold text-white italic">Optimal</p>
+                            </div>
+                            <div>
+                                <p class="text-[10px] uppercase font-bold text-slate-500 tracking-widest mb-1">Fleet Safety</p>
+                                <p id="stat-safety" class="text-xl font-bold text-azure italic">Secured</p>
+                            </div>
+                        </div>
+                        <div class="pt-8 flex flex-wrap gap-4">
+                            <button onclick="app.exportToCSV()" class="px-8 py-4 rounded-2xl bg-azure text-white font-bold text-xs hover:bg-blue-600 transition-all flex items-center gap-3 active:scale-95 shadow-xl shadow-azure/20">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                                Export Entire List to Excel
+                            </button>
+                            <button onclick="app.exportData()" class="px-6 py-4 rounded-2xl bg-white/5 text-slate-400 border border-white/10 text-[10px] font-bold hover:text-white transition-all flex items-center gap-3">
+                                JSON Technical Backup
+                            </button>
+                        </div>
+                    </div>
+                    <div class="w-80 h-80 relative flex items-center justify-center">
+                        <canvas id="statusChart"></canvas>
+                        <div class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none pb-2">
+                            <span class="text-[10px] text-slate-500 font-black uppercase tracking-widest">Readiness</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Empty Dashboard State -->
+            <div id="dashboard-empty-callout" class="hidden glass-compact rounded-3xl p-8 border border-white/5 text-center mt-8 animate-fade-in mx-12">
+                <svg class="w-16 h-16 text-azure/50 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                <h4 class="text-xl font-black italic tracking-tight text-white uppercase opacity-90">No Analytics Yet</h4>
+                <p class="text-slate-400 text-sm mt-2 max-w-md mx-auto leading-relaxed">This vessel's maintenance history is pristine. Submit your first log entry to initialize fleet health tracking and analytics.</p>
+            </div>
+        </div>
+    </main>
+
+    <!-- Mobile Bottom Navigation (Glass Overlay) -->
+    <nav class="lg:hidden fixed bottom-6 left-6 right-6 glass-floating border border-white/10 py-3 px-6 rounded-[32px] flex justify-around items-center z-40 shadow-2xl">
+        <button data-view="logs" class="nav-btn-mobile text-azure scale-110 flex flex-col items-center gap-1 group">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path></svg>
+            <span class="text-[9px] font-black uppercase tracking-wider">Logs</span>
+        </button>
+        <button onclick="app.openModal()" class="w-16 h-16 rounded-[24px] bg-azure text-white flex items-center justify-center shadow-lg shadow-azure/40 transition-transform active:scale-95 border-4 border-[#050b14] -mt-10 mx-2">
+            <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4"></path></svg>
+        </button>
+        <button data-view="dashboard" class="nav-btn-mobile text-slate-500 hover:text-white transition-all flex flex-col items-center gap-1 group">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.488 9H15V3.512A9.025 9.025 0 0120.488 9z"></path></svg>
+            <span class="text-[9px] font-black uppercase tracking-wider">Health</span>
+        </button>
+    </nav>
+
+    <!-- Ultra-Modern Entry Modal -->
+    <!-- Alarm Event Modal -->
+    <div id="modal-alarm-entry" class="hidden fixed inset-0 z-[100] bg-black/80 backdrop-blur-xl animate-fade-in items-center justify-center p-6">
+        <div class="glass-modal max-w-2xl w-full rounded-[48px] p-12 relative border border-white/10 shadow-[0_0_100px_rgba(225,29,72,0.1)]">
+            <button onclick="app.closeAlarmModal()" class="absolute top-10 right-10 p-3 rounded-full bg-white/5 hover:bg-white/10 transition-all text-slate-400 hover:text-white active:scale-90">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+            </button>
+            
+            <header class="mb-10 text-center">
+                <h2 id="alarm-modal-title" class="text-3xl font-black italic tracking-tighter text-white uppercase mb-2">New Alarm Event</h2>
+                <div class="flex items-center justify-center gap-2">
+                    <div class="h-1 w-12 bg-rose-600 rounded-full"></div>
+                    <p class="text-[10px] text-slate-500 font-bold uppercase tracking-[0.2em]">Safety Compliance Protocol</p>
+                </div>
+            </header>
+            
+            <form id="alarm-form" class="space-y-8">
+                <div class="grid md:grid-cols-2 gap-8">
+                    <div class="space-y-2">
+                        <label class="text-[10px] font-black uppercase text-slate-500 tracking-widest px-1 italic">Alarm Name</label>
+                        <input name="title" required type="text" placeholder="e.g. Engine Room Smoke Detector" class="form-input w-full">
+                    </div>
+                    <div class="space-y-2">
+                        <label class="text-[10px] font-black uppercase text-slate-500 tracking-widest px-1 italic">Alarm Category</label>
+                        <select name="category" class="form-input w-full appearance-none">
+                            <option>Smoke / Fire</option>
+                            <option>Bilge / Water</option>
+                            <option>Engine / Propulsion</option>
+                            <option>Electrical / Battery</option>
+                            <option>System Failure</option>
+                            <option>Fuel / Gas</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <div class="grid md:grid-cols-2 gap-8">
+                    <div class="space-y-2">
+                        <label class="text-[10px] font-black uppercase text-slate-500 tracking-widest px-1 italic">Event Date</label>
+                        <input name="date" required type="date" class="form-input w-full">
+                    </div>
+                    <div class="space-y-2">
+                        <label class="text-[10px] font-black uppercase text-slate-500 tracking-widest px-1 italic">Event Time</label>
+                        <input name="time" required type="time" class="form-input w-full">
+                    </div>
+                </div>
+                
+                <div class="space-y-2">
+                    <label class="text-[10px] font-black uppercase text-slate-500 tracking-widest px-1 italic">Action Taken & Observations</label>
+                    <textarea name="notes" rows="3" placeholder="Describe the event and how it was resolved..." class="form-input w-full resize-none"></textarea>
+                </div>
+                
+                <div class="space-y-2">
+                    <label class="text-[10px] font-black uppercase text-slate-500 tracking-widest px-1 italic">Visual Evidence / Backdrop</label>
+                    <div class="relative group cursor-pointer h-32 rounded-3xl border-2 border-dashed border-white/10 hover:border-azure/40 transition-all flex flex-col items-center justify-center overflow-hidden" onclick="document.getElementById('alarm-image-input').click()">
+                        <div id="alarm-preview-container" class="absolute inset-0 z-0 hidden">
+                            <img id="alarm-preview-img" class="w-full h-full object-cover">
+                        </div>
+                        <div class="relative z-10 flex flex-col items-center gap-2 group-hover:scale-110 transition-all">
+                            <svg class="w-8 h-8 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                            <span id="alarm-file-name" class="text-[10px] font-black uppercase tracking-widest text-slate-500">Click to upload photo of alarm</span>
+                        </div>
+                        <input id="alarm-image-input" name="image" type="file" accept="image/*" class="hidden" onchange="app.handleAlarmImageUpload(this)">
+                    </div>
+                </div>
+                
+                <button id="alarm-submit-btn" type="submit" class="w-full bg-rose-600 hover:bg-rose-700 py-6 rounded-3xl font-black italic text-lg uppercase tracking-widest shadow-2xl shadow-rose-600/40 transition-all hover:scale-[1.02] active:scale-95 text-white">
+                    Register Safety Alarm Event
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Authentication Overlay -->
+    <div id="auth-overlay" class="hidden fixed inset-0 z-[200] bg-[#050b14] backdrop-blur-3xl animate-fade-in items-center justify-center p-6">
+        <div class="glass-modal max-w-md w-full rounded-[48px] p-12 border border-white/10 shadow-2xl">
+            <header class="mb-10 text-center">
+                <div class="w-16 h-16 rounded-3xl bg-azure/10 border border-white/10 flex items-center justify-center shadow-2xl mx-auto mb-6">
+                    <svg class="w-8 h-8 text-azure" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                </div>
+                <h2 id="auth-title" class="text-3xl font-black italic tracking-tighter text-white uppercase mb-2">Fleet Access</h2>
+                <p id="auth-subtitle" class="text-[10px] text-slate-500 font-bold uppercase tracking-[0.2em]">Secure Maritime Terminal</p>
+            </header>
+
+            <form id="auth-form" class="space-y-6" data-mode="login">
+                <div id="signup-fields" class="hidden space-y-2">
+                    <label class="text-[10px] font-black uppercase text-slate-500 tracking-widest px-1">Officer Name</label>
+                    <input name="name" type="text" placeholder="e.g. John Doe" class="form-input w-full">
+                </div>
+                <div class="space-y-2">
+                    <label class="text-[10px] font-black uppercase text-slate-500 tracking-widest px-1">Fleet Email</label>
+                    <input name="email" required type="email" placeholder="johndoe@gmail.com" class="form-input w-full">
+                </div>
+                <div class="space-y-2">
+                    <label class="text-[10px] font-black uppercase text-slate-500 tracking-widest px-1">Access Key</label>
+                    <input name="password" required type="password" placeholder="••••••••" class="form-input w-full">
+                </div>
+
+                <button type="submit" class="w-full bg-azure hover:bg-blue-600 py-5 rounded-2xl font-black italic text-sm uppercase tracking-widest shadow-2xl shadow-azure/40 transition-all active:scale-95 text-white">
+                    Authorize Entry
+                </button>
+            </form>
+
+            <div class="mt-8 text-center">
+                <button id="toggle-auth-mode" onclick="toggleAuthMode()" class="text-[10px] text-slate-500 hover:text-azure font-black uppercase tracking-widest transition-all">
+                    Request New Credentials?
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Landing Page Overlay -->
+    <div id="landing-overlay" class="fixed inset-0 z-[300] bg-[#050b14] overflow-hidden flex items-center justify-center p-6 sm:p-12">
+        <!-- Ambient Background -->
+        <div class="absolute inset-0 z-0">
+            <img src="./assets/backdrop.jpg" alt="Landing Backdrop" class="w-full h-full object-cover opacity-20 scale-110 animate-pulse-slow">
+            <div class="absolute inset-0 bg-gradient-to-b from-[#050b14]/50 via-[#050b14]/90 to-[#050b14]"></div>
+        </div>
+
+        <div class="relative z-10 max-w-4xl w-full text-center space-y-12 reveal">
+            <header class="space-y-6">
+                <div class="w-24 h-24 rounded-[40px] bg-[#0a192f] border border-white/20 backdrop-blur-3xl overflow-hidden flex items-center justify-center mx-auto shadow-[0_0_80px_rgba(59,130,246,0.3)]">
+                    <img src="./assets/branding/logo.png" alt="DIG Logo" class="w-full h-full object-cover">
+                </div>
+                <div>
+                    <h1 class="text-6xl sm:text-8xl font-black italic tracking-tighter text-white uppercase leading-[0.8] drop-shadow-2xl">
+                        DIG<br>Yacht Management<br><span class="text-azure italic">Software</span>
+                    </h1>
+                    <p class="mt-8 text-slate-400 font-bold uppercase tracking-[0.4em] text-xs sm:text-sm opacity-60">High-Performance Maritime Operations</p>
+                </div>
+            </header>
+
+            <div class="max-w-2xl mx-auto">
+                <p class="text-lg sm:text-xl text-slate-300 font-medium leading-relaxed opacity-80">
+                    A comprehensive technical ecosystem designed for precise vessel management, real-time logging, and elite fleet performance analytics.
+                </p>
+            </div>
+
+            <div class="pt-8">
+                <button onclick="app.closeLandingOpenAuth()" class="group relative inline-flex items-center justify-center px-16 py-8 rounded-[40px] bg-azure hover:bg-blue-600 text-white font-black italic text-xl uppercase tracking-widest shadow-[0_0_60px_rgba(59,130,246,0.3)] transition-all hover:scale-105 active:scale-95">
+                    <span class="relative z-10 flex items-center gap-4">
+                        Begin Commissioning
+                        <svg class="w-6 h-6 transform group-hover:translate-x-2 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 12h14"></path></svg>
+                    </span>
+                    <div class="absolute inset-0 rounded-[40px] bg-white opacity-0 group-hover:opacity-10 transition-opacity"></div>
+                </button>
+                <div class="mt-8 flex items-center justify-center gap-6 opacity-40">
+                    <div class="h-[1px] w-12 bg-white/20"></div>
+                    <span class="text-[10px] font-black uppercase tracking-widest text-slate-500">v2.2 Production Build</span>
+                    <div class="h-[1px] w-12 bg-white/20"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function toggleAuthMode() {
+            const form = document.getElementById('auth-form');
+            const signupFields = document.getElementById('signup-fields');
+            const title = document.getElementById('auth-title');
+            const toggleBtn = document.getElementById('toggle-auth-mode');
+            const submitBtn = form.querySelector('button[type="submit"]');
+
+            if (form.dataset.mode === 'login') {
+                form.dataset.mode = 'signup';
+                signupFields.classList.remove('hidden');
+                title.innerText = 'Crew Enrollment';
+                toggleBtn.innerText = 'Already have credentials?';
+                submitBtn.innerText = 'Register Officer';
+            } else {
+                form.dataset.mode = 'login';
+                signupFields.classList.add('hidden');
+                title.innerText = 'Fleet Access';
+                toggleBtn.innerText = 'Request New Credentials?';
+                submitBtn.innerText = 'Authorize Entry';
+            }
+        }
+    </script>
+
+    <!-- Application Kernel -->
+    <script src="./js/app.js?v=2.2"></script>
+</body>
+</html>
