@@ -3,63 +3,92 @@
  * Clean Slate Refactor with Robust Local Persistence & User Accountability
  */
 
-// Auto-clear legacy data once for a fresh start as requested
-if (!localStorage.getItem('blondie_demo_reset_v2')) {
-    localStorage.clear();
-    localStorage.setItem('blondie_demo_reset_v2', 'true');
-    console.log("Memory cleared for a fresh start.");
-}
+// 🚨 DATA PURGE: Resetting all local data for Supabase migration
+const DISCOVERY_PURGE_KEYS = [
+    'blondie_user_session', 
+    'blondie_users', 
+    'dig_fleet_settings', 
+    'dig_maintenance_v3', 
+    'dig_alarms_v1',
+    'blondie_demo_reset_v2'
+];
+
+DISCOVERY_PURGE_KEYS.forEach(key => localStorage.removeItem(key));
+console.warn("LEGACY DATA PURGED. Transitioning to Supabase Backend...");
+
+// Supabase Initialization
+const SUPABASE_URL = 'https://gckgpsfebzheyratbtfy.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_k-qqjgcb-wIBmNAWdxuqdA_7eYHbGHS';
+const supabaseClient = (typeof supabase !== 'undefined') ? supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
 
 class UserManager {
     constructor() {
-        this.currentUser = JSON.parse(localStorage.getItem('blondie_user_session')) || null;
-        this.users = JSON.parse(localStorage.getItem('blondie_users')) || [];
+        this.currentUser = null;
+        this.session = null;
+        this.init();
     }
 
-    async hashPassword(password) {
-        const msgBuffer = new TextEncoder().encode(password);
-        const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
-        const hashArray = Array.from(new Uint8Array(hashBuffer));
-        return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    async init() {
+        if (!supabaseClient) return;
+        const { data: { session } } = await supabaseClient.auth.getSession();
+        this.setSession(session);
+
+        supabaseClient.auth.onAuthStateChange((_event, session) => {
+            this.setSession(session);
+            if (_event === 'SIGNED_IN') {
+                // Potential redirect or UI update
+                if (typeof app !== 'undefined') app.init();
+            }
+        });
+    }
+
+    setSession(session) {
+        this.session = session;
+        this.currentUser = session ? {
+            id: session.user.id,
+            email: session.user.email,
+            name: session.user.user_metadata.full_name || session.user.email
+        } : null;
     }
 
     async signUp(email, password, name) {
-        if (this.users.find(u => u.email === email)) {
-            alert("This fleet email is already registered. Please login instead.");
+        if (!supabaseClient) return false;
+        const { data, error } = await supabaseClient.auth.signUp({
+            email,
+            password,
+            options: {
+                data: { full_name: name }
+            }
+        });
+
+        if (error) {
+            app.notifyError("Enrollment failed: " + error.message);
             return false;
         }
-        const hashedPassword = await this.hashPassword(password);
-        const newUser = { email, password: hashedPassword, name };
-        this.users.push(newUser);
-        localStorage.setItem('blondie_users', JSON.stringify(this.users));
-        return this.login(email, password); // login will hash it again
+        return true;
     }
 
     async login(email, password) {
-        const hashedPassword = await this.hashPassword(password);
-        const user = this.users.find(u => u.email === email && u.password === hashedPassword);
-        
-        // Backward compatibility for existing plaintext passwords
-        const legacyUser = this.users.find(u => u.email === email && u.password === password);
-        const finalUser = user || legacyUser;
-
-        if (finalUser) {
-            this.currentUser = finalUser;
-            // Upgrade to hash if it was plaintext
-            if (legacyUser && !user) {
-                finalUser.password = hashedPassword;
-                localStorage.setItem('blondie_users', JSON.stringify(this.users));
-            }
-            localStorage.setItem('blondie_user_session', JSON.stringify(this.currentUser));
-            return true;
+        if (!supabaseClient) {
+            app.notifyError("Connection error: Supabase not initialized.");
+            return false;
         }
-        alert("Account not found or incorrect access key.\n\nIf you haven't successfully registered yet, please click 'Request New Credentials?'.");
-        return false;
+        const { data, error } = await supabaseClient.auth.signInWithPassword({
+            email,
+            password
+        });
+
+        if (error) {
+            app.notifyError("Entry Denied: " + error.message);
+            return false;
+        }
+        return true;
     }
 
-    logout() {
+    async logout() {
+        if (supabaseClient) await supabaseClient.auth.signOut();
         this.currentUser = null;
-        localStorage.removeItem('blondie_user_session');
+        this.session = null;
         location.reload();
     }
 
@@ -72,33 +101,77 @@ const auth = new UserManager();
 
 class SettingsManager {
     constructor() {
-        this.loadSettings();
+        this.fleet = [];
+        this.activeVesselId = null;
     }
 
-    loadSettings() {
-        const userPrefix = auth.currentUser ? `_${auth.currentUser.email}` : '';
-        const stored = JSON.parse(localStorage.getItem('dig_fleet_settings' + userPrefix));
-        const oldStored = JSON.parse(localStorage.getItem('blondie_fleet_settings' + userPrefix));
-        
-        if (stored && stored.fleet && stored.fleet.length > 0) {
-            this.fleet = stored.fleet;
-            this.activeVesselId = stored.activeVesselId || this.fleet[0].id;
-        } else if (oldStored && oldStored.vesselName) {
-            this.fleet = [{
-                id: 'vsl_' + Date.now(),
-                name: oldStored.vesselName || 'FLEET ASSET',
-                backdrop: oldStored.backdrop || ''
-            }];
-            this.activeVesselId = this.fleet[0].id;
+    async loadSettings() {
+        if (!supabaseClient || !auth.currentUser) return;
+
+        // Fetch vessels via joining the membership table
+        const { data: members, error: memberError } = await supabaseClient
+            .from('vessel_members')
+            .select(`
+                vessel_id,
+                role,
+                vessels (
+                    id,
+                    name,
+                    access_code,
+                    passcode,
+                    backdrop_url,
+                    owner_id,
+                    created_at
+                )
+            `)
+            .eq('user_id', auth.currentUser.id);
+        if (memberError) {
+            console.warn("Membership table not found or error. Falling back to legacy owner check:", memberError);
+            // LEGACY FALLBACK: If membership table hasn't been created/migrated yet, 
+            // still try to load vessels where the user is the direct owner.
+            const { data: legacyVessels, error: legacyError } = await supabaseClient
+                .from('vessels')
+                .select('*')
+                .eq('owner_id', auth.currentUser.id);
+            
+            if (legacyError) {
+                console.error("Legacy loading failed:", legacyError);
+                return;
+            }
+            this.fleet = legacyVessels || [];
         } else {
-            this.fleet = [];
-            this.activeVesselId = null;
+            // Map memberships to vessel objects, adding the role property
+            this.fleet = members ? members.filter(m => m.vessels).map(m => ({
+                ...m.vessels,
+                memberRole: m.role
+            })) : [];
         }
+        
+        // DE-DUPLICATE: Ensure each vessel ID only appears once
+        const uniqueFleet = [];
+        const seenIds = new Set();
+        this.fleet.forEach(v => {
+            if (!seenIds.has(v.id)) {
+                uniqueFleet.push(v);
+                seenIds.add(v.id);
+            }
+        });
+        this.fleet = uniqueFleet;
+        
+        // Restore active vessel from session storage (tabs/refresh)
+        const savedActiveId = sessionStorage.getItem('dig_active_vessel_id');
+        this.activeVesselId = savedActiveId || (this.fleet.length > 0 ? this.fleet[0].id : null);
+        
+        if (this.activeVesselId && !this.fleet.find(v => v.id === this.activeVesselId)) {
+            this.activeVesselId = this.fleet.length > 0 ? this.fleet[0].id : null;
+        }
+
+        this.applySettings();
+        this.renderVesselSelector();
     }
 
     get activeVessel() {
-        if (this.fleet.length === 0) return { name: "M/Y EXPLORER", backdrop: "" };
-        return this.fleet.find(v => v.id === this.activeVesselId) || this.fleet[0];
+        return this.fleet.find(v => v.id === this.activeVesselId) || { name: "M/Y EXPLORER", access_code: "000000", passcode: "", backdrop_url: "" };
     }
 
     initUI(appInstance) {
@@ -117,53 +190,134 @@ class SettingsManager {
         this.renderVesselSelector();
     }
 
-    saveSettings(vesselName, backdropData, mode = 'edit') {
-        const appInstance = typeof app !== 'undefined' ? app : null;
+    async saveSettings(vesselName, backdropData, mode = 'edit', passcode = '') {
+        if (!supabaseClient || !auth.currentUser) return false;
+
+        let query;
         if (mode === 'new') {
-            const newVessel = {
-                id: 'vsl_' + Date.now(), // Standardized prefix
-                name: vesselName || 'FLEET ASSET',
-                backdrop: backdropData || ''
-            };
-            this.fleet.push(newVessel);
-            this.activeVesselId = newVessel.id;
+            // Generate a random 6-digit numeric access code
+            const accessCode = Math.floor(100000 + Math.random() * 900000).toString();
+            
+            // If no passcode provided, use default
+            const finalPasscode = passcode || 'changeme';
+
+            const { data: newVessel, error: vesselError } = await supabaseClient
+                .from('vessels')
+                .insert([{ 
+                    name: vesselName || 'FLEET ASSET', 
+                    access_code: accessCode,
+                    passcode: finalPasscode,
+                    backdrop_url: backdropData || '', 
+                    owner_id: auth.currentUser.id 
+                }])
+                .select();
+
+            if (vesselError) {
+                app.notifyError("Asset Registration Failed: " + vesselError.message);
+                return false;
+            }
+
+            // Create owner membership
+            if (newVessel && newVessel.length > 0) {
+                const { error: memberError } = await supabaseClient
+                    .from('vessel_members')
+                    .insert([{
+                        vessel_id: newVessel[0].id,
+                        user_id: auth.currentUser.id,
+                        role: 'owner'
+                    }]);
+                
+                if (memberError) {
+                    app.notifyError("Identity Linkage Failed: " + memberError.message);
+                    return false;
+                }
+                
+                this.activeVesselId = newVessel[0].id;
+                sessionStorage.setItem('dig_active_vessel_id', this.activeVesselId);
+            }
         } else {
-            const active = this.activeVessel;
-            if (active) {
-                active.name = vesselName || active.name;
-                if (backdropData !== undefined) active.backdrop = backdropData;
+            const { error } = await supabaseClient
+                .from('vessels')
+                .update({ 
+                    name: vesselName, 
+                    passcode: passcode,
+                    backdrop_url: backdropData 
+                })
+                .eq('id', this.activeVesselId);
+
+            if (error) {
+                app.notifyError("Profile Update Failed: " + error.message);
+                return false;
             }
         }
+
+        // No additional check needed here as activeVesselId is set above for 'new' mode
+        // and persists for 'edit' mode.
         
-        const status = this.persist();
-        if (status) {
-            this.applySettings();
-            this.renderVesselSelector();
-            
-            // Broadcast change to all listeners (including app kernel)
-            window.dispatchEvent(new CustomEvent('vesselSwitched', { 
-                detail: { vesselId: this.activeVesselId } 
-            }));
-            return true;
-        }
-        return false;
+        await this.loadSettings();
+        window.dispatchEvent(new CustomEvent('vesselSwitched', { 
+            detail: { vessel_id: this.activeVesselId } 
+        }));
+        return true;
     }
 
-    switchVessel(id) {
+    async joinVessel(accessCode, passcode) {
+        if (!supabaseClient || !auth.currentUser) return false;
+
+        // 1. Verify existence and passcode
+        const { data: vessels, error: vesselError } = await supabaseClient
+            .from('vessels')
+            .select('id, name')
+            .eq('access_code', accessCode)
+            .eq('passcode', passcode);
+
+        if (vesselError || !vessels || vessels.length === 0) {
+            app.notifyError("Authentication Failed: Invalid Access Code or Secure Passcode.");
+            return false;
+        }
+
+        // 2. Join the vessel
+        const { error: joinError } = await supabaseClient
+            .from('vessel_members')
+            .insert([{
+                vessel_id: vessels[0].id,
+                user_id: auth.currentUser.id,
+                role: 'member'
+            }]);
+
+        if (joinError) {
+            if (joinError.code === '23505') { // Duplicate unique key
+                app.notifyError("Duplicate Entry: You are already a member of this asset.");
+            } else {
+                app.notifyError("Linkage Failed: " + joinError.message);
+            }
+            return false;
+        }
+
+        this.activeVesselId = vessels[0].id;
+        sessionStorage.setItem('dig_active_vessel_id', this.activeVesselId);
+        
+        await this.loadSettings();
+        window.dispatchEvent(new CustomEvent('vesselSwitched', { 
+            detail: { vessel_id: this.activeVesselId } 
+        }));
+        return true;
+    }
+
+    async switchVessel(id) {
         if (id === 'add_new') {
             const appInstance = typeof app !== 'undefined' ? app : null;
             if (appInstance) {
                 appInstance.openSettingsModal();
                 appInstance.setSettingsMode('new');
             }
-            // Reset dropdown visual state back to current active vessel
             this.renderVesselSelector();
             return;
         }
         
         if (this.fleet.find(v => v.id === id)) {
             this.activeVesselId = id;
-            this.persist();
+            sessionStorage.setItem('dig_active_vessel_id', this.activeVesselId);
             this.applySettings();
             this.renderVesselSelector();
             window.dispatchEvent(new CustomEvent('vesselSwitched'));
@@ -183,18 +337,28 @@ class SettingsManager {
         } catch (e) {
             console.error("Storage Error:", e);
             if (e.name === 'QuotaExceededError' || e.code === 22) {
-                alert("CRITICAL ERROR: Vessel Configuration too large for local memory.\n\nPlease use a smaller/compressed image for the backdrop.");
+                app.notifyError("CRITICAL ERROR: Vessel Configuration too large for local memory. Please use a smaller image.");
             } else {
-                alert("An error occurred while saving vessel data. Details: " + e.message);
+                app.notifyError("An error occurred while saving vessel data: " + e.message);
             }
             return false;
         }
     }
 
-    resetToDefaults() {
-        // Only reset the backdrop of the current vessel
-        this.activeVessel.backdrop = '';
-        this.persist();
+    async resetToDefaults() {
+        if (!supabaseClient || !this.activeVesselId) return;
+        
+        const { error } = await supabaseClient
+            .from('vessels')
+            .update({ backdrop_url: '' })
+            .eq('id', this.activeVesselId);
+        
+        if (error) {
+            app.notifyError('Reset failed: ' + error.message);
+            return;
+        }
+        
+        await this.loadSettings();
         this.applySettings();
         window.dispatchEvent(new CustomEvent('vesselSwitched'));
         
@@ -206,35 +370,38 @@ class SettingsManager {
         if (fileInput) fileInput.value = '';
     }
 
-    deleteCurrentVessel() {
+    async deleteCurrentVessel() {
         if (this.fleet.length <= 1) {
-            alert("Cannot delete the only vessel in the fleet.");
-            app.setSettingsMode('edit'); // reset the delete buttons
+            app.notifyError("Cannot delete the only vessel in the fleet.");
+            app.setSettingsMode('edit'); 
             return;
         }
 
         const deletedVesselId = this.activeVesselId;
 
-        // Remove from fleet array
-        this.fleet = this.fleet.filter(v => v.id !== deletedVesselId);
-        
-        // Find logs for this asset and remove them from localStorage
-        const allLogsData = localStorage.getItem('dig_maintenance_v3');
-        if (allLogsData) {
-            let allLogs = JSON.parse(allLogsData);
-            allLogs = allLogs.filter(log => log.vesselId !== deletedVesselId);
-            localStorage.setItem('dig_maintenance_v3', JSON.stringify(allLogs));
-        }
+        if (confirm("🚨 CRITICAL ACTION: Permanently purge this vessel and all associated logs/alarms?")) {
+            const { error } = await supabaseClient
+                .from('vessels')
+                .delete()
+                .eq('id', deletedVesselId);
 
-        // Switch to the first available vessel
-        this.activeVesselId = this.fleet[0].id;
-        
-        this.persist();
-        this.applySettings();
-        this.renderVesselSelector();
-        
-        app.closeSettingsModal();
-        window.dispatchEvent(new CustomEvent('vesselSwitched'));
+            if (error) {
+                app.notifyError("Deletion failed: " + error.message);
+                return;
+            }
+            
+            await this.loadSettings();
+            
+            if (this.fleet.length > 0) {
+                this.activeVesselId = this.fleet[0].id;
+                sessionStorage.setItem('dig_active_vessel_id', this.activeVesselId);
+            }
+            
+            this.applySettings();
+            this.renderVesselSelector();
+            app.closeSettingsModal();
+            window.dispatchEvent(new CustomEvent('vesselSwitched'));
+        }
     }
 
     applySettings() {
@@ -244,18 +411,16 @@ class SettingsManager {
             if (el) el.innerText = vessel.name;
         });
 
-        const backdropElements = document.querySelectorAll('img[alt="Marine Backdrop"]');
-        backdropElements.forEach(el => {
-            if (el) {
-                if (vessel.backdrop) {
-                    el.src = vessel.backdrop;
-                    el.classList.remove('hidden');
-                } else {
-                    el.src = '';
-                    el.classList.add('hidden'); // Show plain block background instead
-                }
+        const sidebarBackdrop = document.getElementById('sidebar-backdrop');
+        if (sidebarBackdrop) {
+            if (vessel.backdrop_url) {
+                sidebarBackdrop.style.backgroundImage = `url(${vessel.backdrop_url})`;
+                sidebarBackdrop.classList.remove('opacity-0');
+            } else {
+                sidebarBackdrop.style.backgroundImage = 'none';
+                sidebarBackdrop.classList.add('opacity-0');
             }
-        });
+        }
     }
     
     renderVesselSelector() {
@@ -280,11 +445,11 @@ const settingsManager = new SettingsManager();
 
 class MaintenanceSuite {
     constructor() {
-        console.log("DIG Yacht Management Software v3.0 Alpha Initializing...");
+        console.log("DIG Yacht Management Software v3.0 Alpha Initializing (Supabase)...");
         
         // Initial State
-        this.logs = this.loadLogs();
-        this.alarms = this.loadAlarms();
+        this.logs = [];
+        this.alarms = [];
         this.currentView = 'logs';
         this.filters = {
             search: '',
@@ -293,17 +458,8 @@ class MaintenanceSuite {
         };
         this.editingLogId = null;
         this.editingAlarmId = null;
-        this.currentAlarmImage = null; // Store base64 image data temporary
-
-        // Migration for old logs
-        if (this.logs && this.logs.length > 0 && !this.logs[0].vesselId) {
-            if (settingsManager.fleet.length > 0) {
-                this.logs.forEach(log => {
-                    log.vesselId = settingsManager.fleet[0].id;
-                });
-                this.saveLogs();
-            }
-        }
+        this.currentAlarmImage = null;
+        this.isSubmitting = false;
 
         this.init();
     }
@@ -311,15 +467,22 @@ class MaintenanceSuite {
     /**
      * Kernel Initialization
      */
-    init() {
+    async init() {
         this.setupEventListeners();
         this.applyTheme();
         
-        window.addEventListener('vesselSwitched', () => {
+        // Wait for session to stabilize
+        if (!auth.session) {
+            const { data: { session } } = await supabaseClient.auth.getSession();
+            if (session) auth.setSession(session);
+        }
+
+        window.addEventListener('vesselSwitched', async () => {
             const searchInput = document.getElementById('search-input');
             if (searchInput) searchInput.value = '';
             this.filters.search = '';
 
+            await this.reloadData();
             if (this.currentView !== 'logs' && this.currentView !== 'dashboard') {
                 this.switchView('logs');
             }
@@ -331,8 +494,9 @@ class MaintenanceSuite {
             this.showLandingUI();
             return;
         }
+
+        await settingsManager.loadSettings();
         
-        // If authenticated but no vessels, force commissioning
         if (settingsManager.fleet.length === 0) {
             this.hideLandingUI();
             this.hideAuthUI();
@@ -343,13 +507,94 @@ class MaintenanceSuite {
         this.hideLandingUI();
         this.hideAuthUI();
         
-        // Ensure UI is synced with existing fleet data
-        settingsManager.applySettings();
-        settingsManager.renderVesselSelector();
-        
+        await this.reloadData();
         this.render();
         this.updateDashboard();
         this.updateUserUI();
+    }
+
+    async reloadData() {
+        this.logs = await this.loadLogs();
+        this.alarms = await this.loadAlarms();
+    }
+
+    render() {
+        const list = document.getElementById('log-list');
+        if (!list) return;
+
+        const filtered = this.getFilteredLogs();
+        this.sortLogs();
+        
+        if (filtered.length === 0) {
+            list.innerHTML = `
+                <div class="col-span-full py-32 flex flex-col items-center justify-center text-slate-600">
+                    <svg class="w-16 h-16 mb-4 opacity-20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path></svg>
+                    <p class="font-black italic uppercase tracking-widest text-sm">No Maintenance History Recorded</p>
+                    <p class="text-xs text-slate-500 mt-2">Press <kbd class="px-2 py-1 rounded bg-white/5 border border-white/10 text-azure font-mono text-[10px]">N</kbd> to create your first entry</p>
+                </div>
+            `;
+            return;
+        }
+
+        list.innerHTML = filtered.map(log => `
+            <div class="glass-compact rounded-[32px] overflow-hidden border border-white/5 hover:border-azure/30 transition-all group scale-in shadow-2xl">
+                <div class="p-8">
+                    <div class="flex justify-between items-start mb-6">
+                        <div class="flex-1">
+                            <div class="flex items-center gap-2 mb-2">
+                                <span class="px-3 py-1 rounded-full bg-white/5 text-slate-400 text-[8px] font-black uppercase tracking-widest">${log.category}</span>
+                                <span class="px-3 py-1 rounded-full ${log.priority === 'Critical' ? 'bg-red-500/10 text-red-500' : 'bg-white/5 text-slate-400'} text-[8px] font-black uppercase tracking-widest">${log.priority}</span>
+                            </div>
+                            <h3 class="text-white font-black italic uppercase tracking-tight text-xl leading-tight">${log.title}</h3>
+                        </div>
+                        <div class="flex gap-2">
+                             <button onclick="app.editLog('${log.id}')" class="p-2.5 rounded-2xl bg-white/5 text-slate-400 hover:text-white hover:bg-white/10 transition-all border border-white/5 active:scale-95">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg>
+                            </button>
+                             <button onclick="app.deleteLog('${log.id}')" class="p-2.5 rounded-2xl bg-white/5 text-slate-400 hover:text-red-500 hover:bg-red-500/10 transition-all border border-white/5 active:scale-95">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="space-y-4 mb-8">
+                        <div class="flex items-center gap-3">
+                            <div class="w-10 h-10 rounded-2xl bg-white/5 flex items-center justify-center text-azure">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                            </div>
+                            <div>
+                                <p class="text-[9px] text-slate-500 font-bold uppercase tracking-[0.2em]">Deployment Location</p>
+                                <p class="text-white text-xs font-black italic uppercase">${log.location}</p>
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-3">
+                            <div class="w-10 h-10 rounded-2xl bg-white/5 flex items-center justify-center text-azure">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                            </div>
+                            <div>
+                                <p class="text-[9px] text-slate-500 font-bold uppercase tracking-[0.2em]">Maintenance Date</p>
+                                <p class="text-white text-xs font-black italic uppercase">${log.timestamp}</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <p class="text-slate-400 text-xs leading-relaxed font-medium mb-8 line-clamp-3">${log.notes || 'No technical notes recorded.'}</p>
+
+                    <div class="pt-6 border-t border-white/5 flex items-center justify-between">
+                        <div class="flex items-center gap-2">
+                            <div class="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center text-azure font-black italic text-[10px]">${log.completed_by ? log.completed_by[0] : 'U'}</div>
+                            <span class="text-[10px] text-slate-500 font-black uppercase tracking-widest">${log.completed_by || 'Logged Asset'}</span>
+                        </div>
+                        <button onclick="app.toggleComplete('${log.id}')" class="flex items-center gap-3 group/cb">
+                            <span class="text-[10px] font-black uppercase tracking-widest ${log.completed ? 'text-green-500' : 'text-slate-500 hover:text-white'} transition-all">${log.completed ? 'Status: Operational ✓' : 'Status: Pending Action'}</span>
+                            <div class="w-6 h-6 rounded-xl border-2 ${log.completed ? 'border-green-500 bg-green-500' : 'border-white/10'} flex items-center justify-center transition-all">
+                                ${log.completed ? '<svg class="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path></svg>' : ''}
+                            </div>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `).join('');
     }
 
     showLandingUI() {
@@ -378,93 +623,95 @@ class MaintenanceSuite {
     }
 
     updateUserUI() {
+        const userName = auth.currentUser?.name || 'Guest User';
         const userNameElements = document.querySelectorAll('#current-user-name, #mobile-user-name');
-        userNameElements.forEach(el => el.innerText = auth.currentUser.name);
+        userNameElements.forEach(el => el.innerText = userName);
+        
+        const firstLetter = userName.charAt(0).toUpperCase();
+        
+        // Update Desktop Avatar
+        const desktopAvatar = document.getElementById('user-avatar-desktop');
+        if (desktopAvatar) desktopAvatar.innerText = firstLetter;
+        
+        // Update Mobile Avatar
+        const mobileAvatar = document.getElementById('user-avatar-mobile');
+        if (mobileAvatar) mobileAvatar.innerText = firstLetter;
     }
 
     /**
      * Data Layer: LocalStorage Core
      */
-    loadLogs() {
-        try {
-            const saved = localStorage.getItem('dig_maintenance_v3');
-            if (!saved) return [];
-            return JSON.parse(saved);
-        } catch (e) {
-            console.error("Storage corruption detected. Resetting to secure state.");
-            return [];
-        }
+    async loadLogs() {
+        if (!supabaseClient || !settingsManager.activeVesselId) return [];
+        const { data, error } = await supabaseClient
+            .from('maintenance_logs')
+            .select('*')
+            .eq('vessel_id', settingsManager.activeVesselId)
+            .order('timestamp', { ascending: false });
+
+        return error ? [] : data;
     }
 
-    saveLogs() {
-        try {
-            localStorage.setItem('dig_maintenance_v3', JSON.stringify(this.logs));
-            this.updateDashboard();
-            console.log("Records synchronized. Total entries:", this.logs.length);
-        } catch (e) {
-            alert("Asset storage limit exceeded. Backup your logs and clear some history.");
-        }
+    async saveLogs() {
+        // Obsolete in Supabase - use CRUD methods
+        this.updateDashboard();
     }
 
-    loadAlarms() {
-        try {
-            const saved = localStorage.getItem('dig_alarms_v1');
-            if (!saved) return [];
-            return JSON.parse(saved);
-        } catch (e) {
-            console.error("Alarm storage corruption detected.");
-            return [];
-        }
+    async loadAlarms() {
+        if (!supabaseClient || !settingsManager.activeVesselId) return [];
+        const { data, error } = await supabaseClient
+            .from('alarm_events')
+            .select('*')
+            .eq('vessel_id', settingsManager.activeVesselId)
+            .order('date', { ascending: false });
+
+        return error ? [] : data;
     }
 
-    saveAlarms() {
-        try {
-            localStorage.setItem('dig_alarms_v1', JSON.stringify(this.alarms));
-            this.updateDashboard();
-        } catch (e) {
-            alert("Alarm storage quota exceeded.");
-        }
+    async saveAlarms() {
+        // Obsolete in Supabase - use CRUD methods
+        this.updateDashboard();
     }
 
     /**
      * CRUD Operations
      */
-    addLog(formData) {
+    async addLog(formData) {
+        if (!supabaseClient) return;
+
+        const logData = {
+            vessel_id: settingsManager.activeVesselId,
+            title: formData.get('title'),
+            location: formData.get('location'),
+            category: formData.get('category'),
+            priority: formData.get('priority'),
+            timestamp: formData.get('date'),
+            notes: formData.get('notes')
+        };
+
         if (this.editingLogId) {
-            const logIndex = this.logs.findIndex(l => l.id === this.editingLogId);
-            if (logIndex > -1) {
-                this.logs[logIndex] = {
-                    ...this.logs[logIndex],
-                    title: formData.get('title'),
-                    location: formData.get('location'),
-                    category: formData.get('category'),
-                    priority: formData.get('priority'),
-                    timestamp: formData.get('date'),
-                    notes: formData.get('notes')
-                };
-            }
+            const { error } = await supabaseClient
+                .from('maintenance_logs')
+                .update(logData)
+                .eq('id', this.editingLogId);
+            
+            if (error) app.notifyError("Update failed: " + error.message);
             this.editingLogId = null;
         } else {
-            const entry = {
-                id: Date.now().toString(),
-                vesselId: settingsManager.activeVesselId,
-                title: formData.get('title'),
-                location: formData.get('location'),
-                category: formData.get('category'),
-                priority: formData.get('priority'),
-                timestamp: formData.get('date'), // Stored as YYYY-MM-DD
-                notes: formData.get('notes'),
-                completed: false,
-                createdBy: auth.currentUser.name,
-                createdAt: new Date().toISOString(),
-                completedBy: null
-            };
-            this.logs.unshift(entry);
+            const { error } = await supabaseClient
+                .from('maintenance_logs')
+                .insert([logData]);
+            
+            if (error) { app.notifyError("Recording failed: " + error.message); return; }
         }
 
-        this.sortLogs();
-        this.saveLogs();
+        await this.reloadData();
         this.render();
+        this.updateDashboard();
+        
+        // Confirmation toast
+        const isEdit = !!logData.id;
+        this.notifySuccess(isEdit ? 'Entry Updated ✓' : 'Maintenance Entry Saved ✓');
     }
 
     editLog(id) {
@@ -474,6 +721,10 @@ class MaintenanceSuite {
         this.editingLogId = id;
         const modal = document.getElementById('modal-new-entry');
         if (modal) {
+            // Update title for edit mode
+            const titleEl = modal.querySelector('header h2');
+            if (titleEl) titleEl.innerText = 'Edit Maintenance Entry';
+            
             modal.querySelector('input[name="title"]').value = log.title;
             modal.querySelector('input[name="location"]').value = log.location;
             modal.querySelector('select[name="category"]').value = log.category;
@@ -486,21 +737,36 @@ class MaintenanceSuite {
         }
     }
 
-    deleteLog(id) {
+    async deleteLog(id) {
         if (confirm("Permanently purge this entry from the history?")) {
-            this.logs = this.logs.filter(l => l.id !== id);
-            this.saveLogs();
+            const { error } = await supabaseClient
+                .from('maintenance_logs')
+                .delete()
+                .eq('id', id);
+
+            if (error) alert("Deletion failed: " + error.message);
+            await this.reloadData();
             this.render();
+            this.updateDashboard();
         }
     }
 
-    toggleComplete(id) {
+    async toggleComplete(id) {
         const log = this.logs.find(l => l.id === id);
         if (log) {
-            log.completed = !log.completed;
-            log.completedBy = log.completed ? auth.currentUser.name : null;
-            this.saveLogs();
+            const newStatus = !log.completed;
+            const { error } = await supabaseClient
+                .from('maintenance_logs')
+                .update({ 
+                    completed: newStatus,
+                    completed_by: newStatus ? auth.currentUser.name : null 
+                })
+                .eq('id', id);
+
+            if (error) alert("Sync failed: " + error.message);
+            await this.reloadData();
             this.render();
+            this.updateDashboard();
         }
     }
 
@@ -535,7 +801,7 @@ class MaintenanceSuite {
     getFilteredLogs() {
         return this.logs.filter(log => {
             // Filter by Active Vessel First
-            const logVesselId = log.vesselId || settingsManager.fleet[0].id;
+            const logVesselId = log.vessel_id;
             if (logVesselId !== settingsManager.activeVesselId) return false;
 
             const matchesSearch = log.title.toLowerCase().includes(this.filters.search.toLowerCase()) || 
@@ -553,28 +819,27 @@ class MaintenanceSuite {
 
     getFilteredAlarms() {
         return this.alarms.filter(alarm => {
-            const alarmVesselId = alarm.vesselId || (settingsManager.fleet.length > 0 ? settingsManager.fleet[0].id : null);
+            const alarmVesselId = alarm.vessel_id;
             if (alarmVesselId !== settingsManager.activeVesselId) return false;
 
             const matchesSearch = alarm.title.toLowerCase().includes(this.filters.search.toLowerCase()) ||
                                   (alarm.notes || '').toLowerCase().includes(this.filters.search.toLowerCase());
             
             return matchesSearch;
-        }).sort((a, b) => new Date(b.loggedAt) - new Date(a.loggedAt)); // Sort by most recent
+        }).sort((a, b) => new Date(b.created_at) - new Date(a.created_at)); // Sort by created_at
     }
 
     /**
      * Dashboard Analytics Engine
      */
     updateDashboard() {
-        const fallbackId = settingsManager.fleet.length > 0 ? settingsManager.fleet[0].id : null;
-        const vesselLogs = this.logs.filter(l => (l.vesselId || fallbackId) === settingsManager.activeVesselId);
+        const vesselLogs = this.logs.filter(l => l.vessel_id === settingsManager.activeVesselId);
         
         const total = vesselLogs.length;
         const completed = vesselLogs.filter(l => l.completed).length;
         const pending = total - completed;
         const critical = vesselLogs.filter(l => l.priority === 'Critical' && !l.completed).length;
-        const unacknowledgedAlarms = this.alarms.filter(a => a.vesselId === settingsManager.activeVesselId && !a.acknowledged).length;
+        const unacknowledgedAlarms = this.alarms.filter(a => a.vessel_id === settingsManager.activeVesselId && !a.acknowledged).length;
 
         const elements = {
             'stat-total': total,
@@ -630,8 +895,44 @@ class MaintenanceSuite {
         
         if (window.myChart) {
             window.myChart.data.datasets[0].data = [completed, pending];
-            window.myChart.update('none'); // Animate if preferred, 'none' for instant
+            window.myChart.update('none');
+        } else {
+            this.initCharts(completed, pending);
         }
+    }
+
+    initCharts(completed, pending) {
+        const ctx = document.getElementById('statusChart');
+        if (!ctx) return;
+
+        window.myChart = new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels: ['Operational', 'Pending'],
+                datasets: [{
+                    data: [completed, pending],
+                    backgroundColor: ['#22c55e', '#3b82f6'],
+                    borderWidth: 0,
+                    hoverOffset: 10
+                }]
+            },
+            options: {
+                cutout: '80%',
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        enabled: true,
+                        backgroundColor: '#0a192f',
+                        titleFont: { family: 'Outfit', size: 14 },
+                        bodyFont: { family: 'Inter', size: 12 },
+                        padding: 12,
+                        cornerRadius: 12
+                    }
+                },
+                responsive: true,
+                maintainAspectRatio: false
+            }
+        });
     }
 
     /**
@@ -691,11 +992,20 @@ class MaintenanceSuite {
         });
 
         // Form Controller
-        document.getElementById('log-form')?.addEventListener('submit', (e) => {
+        document.getElementById('log-form')?.addEventListener('submit', async (e) => {
             e.preventDefault();
-            this.addLog(new FormData(e.target));
-            this.closeModal();
-            e.target.reset();
+            if (this.isSubmitting) return;
+            this.isSubmitting = true;
+            const submitBtn = e.target.querySelector('button[type="submit"]');
+            if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Saving...'; }
+            try {
+                await this.addLog(new FormData(e.target));
+                this.closeModal();
+                e.target.reset();
+            } finally {
+                this.isSubmitting = false;
+                if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Register Maintenance Record'; }
+            }
         });
 
         // Auth Form Controller
@@ -704,11 +1014,33 @@ class MaintenanceSuite {
             const formData = new FormData(e.target);
             const isSignUp = e.target.dataset.mode === 'signup';
             
+            const submitBtn = e.target.querySelector('button[type="submit"]');
+            const originalText = submitBtn?.innerText;
+            if (submitBtn) {
+                submitBtn.disabled = true;
+                submitBtn.innerHTML = `
+                    <div class="flex items-center justify-center gap-2">
+                        <svg class="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        <span>Authorizing...</span>
+                    </div>
+                `;
+            }
+
             let success = false;
-            if (isSignUp) {
-                success = await auth.signUp(formData.get('email'), formData.get('password'), formData.get('name'));
-            } else {
-                success = await auth.login(formData.get('email'), formData.get('password'));
+            try {
+                if (isSignUp) {
+                    success = await auth.signUp(formData.get('email'), formData.get('password'), formData.get('name'));
+                } else {
+                    success = await auth.login(formData.get('email'), formData.get('password'));
+                }
+            } finally {
+                if (!success && submitBtn) {
+                    submitBtn.disabled = false;
+                    submitBtn.innerText = originalText;
+                }
             }
 
             if (success) {
@@ -716,7 +1048,7 @@ class MaintenanceSuite {
                 this.updateUserUI();
                 
                 // Critical: Reload settings for the authenticated user
-                settingsManager.loadSettings();
+                await settingsManager.loadSettings();
                 
                 // If no vessels, force commissioning modal
                 if (settingsManager.fleet.length === 0) {
@@ -729,47 +1061,71 @@ class MaintenanceSuite {
         });
 
         // Settings Form Controller
-        document.getElementById('settings-form')?.addEventListener('submit', (e) => {
+        document.getElementById('settings-form')?.addEventListener('submit', async (e) => {
             e.preventDefault();
-            const vesselName = document.getElementById('setting-vessel-name').value;
-            const fileInput = document.getElementById('setting-backdrop');
+            if (this.isSubmitting) return;
             const mode = e.target.dataset.mode || 'edit';
             
-            if (!vesselName.trim()) {
-                alert("Please provide a valid vessel name.");
-                return;
-            }
-
-            const saveAndClose = (backdrop) => {
-                const wasSaved = settingsManager.saveSettings(vesselName, backdrop, mode);
-                if (wasSaved) {
-                    this.notifySave();
-                    this.closeSettingsModal();
-                }
-            };
-
-            if (fileInput.files && fileInput.files[0]) {
-                const file = fileInput.files[0];
-                
-                // Pre-check for sanity (1.5MB reasonable limit for localStorage chunks)
-                if (file.size > 1.5 * 1024 * 1024) {
-                    alert("Image too large. Please select a file smaller than 1.5MB for better performance.");
+            const vesselName = document.getElementById('setting-vessel-name').value;
+            const vesselPasscode = document.getElementById('setting-vessel-passcode').value;
+            const joinId = document.getElementById('setting-join-vessel-id').value;
+            const joinPasscode = document.getElementById('setting-join-vessel-passcode').value;
+            const fileInput = document.getElementById('setting-backdrop');
+            
+            // Manual Validation based on mode
+            if (mode === 'join') {
+                if (!joinId || !joinPasscode) {
+                    app.notifyError("Access Code and Target Passcode are required to join an asset.");
                     return;
                 }
-
-                const reader = new FileReader();
-                reader.onload = (event) => {
-                    console.log("Image processed successfully. Saving to fleet...");
-                    saveAndClose(event.target.result);
-                };
-                reader.onerror = () => {
-                    alert("Error processing image. Please try a different file.");
-                };
-                reader.readAsDataURL(file);
             } else {
-                // If editing and no new file, preserve existing backdrop. If new, default to empty.
-                const existingBackdrop = mode === 'edit' ? settingsManager.activeVessel.backdrop : '';
-                saveAndClose(existingBackdrop);
+                if (!vesselName.trim()) {
+                    app.notifyError("Asset Name is required.");
+                    return;
+                }
+                if (mode === 'edit' && !vesselPasscode) {
+                    app.notifyError("Security Passcode is required to update an asset.");
+                    return;
+                }
+            }
+
+            this.isSubmitting = true;
+            const submitBtn = e.target.querySelector('button[type="submit"]');
+            if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Saving...'; }
+
+            try {
+                const getBackdrop = () => {
+                    return new Promise((resolve) => {
+                        if (fileInput.files && fileInput.files[0]) {
+                            const reader = new FileReader();
+                            reader.onload = (event) => resolve(event.target.result);
+                            reader.readAsDataURL(fileInput.files[0]);
+                        } else {
+                            resolve(mode === 'edit' ? settingsManager.activeVessel.backdrop_url || '' : '');
+                        }
+                    });
+                };
+
+                const backdrop = await getBackdrop();
+
+                let wasSuccessful = false;
+                if (mode === 'join') {
+                    wasSuccessful = await settingsManager.joinVessel(joinId, joinPasscode);
+                } else {
+                    wasSuccessful = await settingsManager.saveSettings(vesselName, backdrop, mode, vesselPasscode);
+                }
+
+                if (wasSuccessful) {
+                    this.notifySuccess(mode === 'join' ? 'Vessel Joined Successfully ✓' : 'Profile Updated ✓');
+                    this.closeSettingsModal();
+                }
+            } finally {
+                this.isSubmitting = false;
+                if (submitBtn) { 
+                    submitBtn.disabled = false; 
+                    submitBtn.textContent = mode === 'join' ? 'Authenticate & Join' : 
+                                           (mode === 'new' ? 'Register & Launch Fleet' : 'Save Configurations'); 
+                }
             }
         });
 
@@ -788,16 +1144,65 @@ class MaintenanceSuite {
         // Alarm Submission
         const alarmForm = document.getElementById('alarm-form');
         if (alarmForm) {
-            alarmForm.addEventListener('submit', (e) => {
+            alarmForm.addEventListener('submit', async (e) => {
                 e.preventDefault();
-                this.addAlarmEvent(new FormData(alarmForm));
-                alarmForm.reset();
-                const preview = document.getElementById('alarm-preview-container');
-                if (preview) preview.classList.add('hidden');
-                const fileName = document.getElementById('alarm-file-name');
-                if (fileName) fileName.innerText = "Click to upload photo of alarm";
+                if (this.isSubmitting) return;
+                this.isSubmitting = true;
+                const submitBtn = alarmForm.querySelector('button[type="submit"]');
+                if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Saving...'; }
+                try {
+                    await this.addAlarmEvent(new FormData(alarmForm));
+                    alarmForm.reset();
+                    const preview = document.getElementById('alarm-preview-container');
+                    if (preview) preview.classList.add('hidden');
+                    const fileName = document.getElementById('alarm-file-name');
+                    if (fileName) fileName.innerText = "Click to upload photo of alarm";
+                } finally {
+                    this.isSubmitting = false;
+                    if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Register Safety Alarm Event'; }
+                }
             });
         }
+        
+        // Keyboard Shortcuts
+        document.addEventListener('keydown', (e) => {
+            // Esc closes any open modal
+            if (e.key === 'Escape') {
+                this.closeModal();
+                this.closeAlarmModal();
+                if (settingsManager.fleet.length > 0) this.closeSettingsModal();
+            }
+            // 'N' opens new entry (only when no modal is open and no input is focused)
+            if (e.key === 'n' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+                const tag = document.activeElement?.tagName?.toLowerCase();
+                if (tag !== 'input' && tag !== 'textarea' && tag !== 'select') {
+                    const anyModalOpen = document.querySelector('#modal-new-entry.flex, #modal-alarm-entry.flex, #modal-settings.flex, #auth-overlay.flex, #landing-overlay.flex');
+                    if (!anyModalOpen) {
+                        e.preventDefault();
+                        this.openModal();
+                    }
+                }
+            }
+        });
+        
+        // Online/Offline Detection
+        const updateOnlineStatus = () => {
+            const indicator = document.querySelector('.bg-green-500.rounded-full:not(.animate-ping)');
+            const pingEl = document.querySelector('.animate-ping');
+            const label = indicator?.closest('.glass-compact')?.querySelector('.italic');
+            if (navigator.onLine) {
+                if (indicator) { indicator.classList.remove('bg-red-500'); indicator.classList.add('bg-green-500'); }
+                if (pingEl) { pingEl.classList.remove('bg-red-500'); pingEl.classList.add('bg-green-500'); }
+                if (label) label.innerText = 'Online';
+            } else {
+                if (indicator) { indicator.classList.remove('bg-green-500'); indicator.classList.add('bg-red-500'); }
+                if (pingEl) { pingEl.classList.remove('bg-green-500'); pingEl.classList.add('bg-red-500'); }
+                if (label) label.innerText = 'Offline';
+            }
+        };
+        window.addEventListener('online', updateOnlineStatus);
+        window.addEventListener('offline', updateOnlineStatus);
+        updateOnlineStatus();
     }
 
     /**
@@ -846,12 +1251,27 @@ class MaintenanceSuite {
         if (viewName === 'logs') this.render();
         if (viewName === 'alarms') this.renderAlarms();
         if (viewName === 'dashboard') this.updateDashboard();
+        
+        // Update search placeholder based on view
+        const searchInput = document.getElementById('search-input');
+        if (searchInput) {
+            if (viewName === 'alarms') searchInput.placeholder = 'Filter through alarm events...';
+            else if (viewName === 'dashboard') searchInput.placeholder = 'Search vessel analytics...';
+            else searchInput.placeholder = 'Filter through asset logs...';
+        }
     }
 
     openModal() {
         this.editingLogId = null; // reset edit state
         const modal = document.getElementById('modal-new-entry');
         if (modal) {
+            // Ensure app is defined globally for onclicks
+            window.app = this;
+            
+            // Update title for new mode
+            const titleEl = modal.querySelector('header h2');
+            if (titleEl) titleEl.innerText = 'New Maintenance Entry';
+            
             modal.classList.remove('hidden');
             modal.classList.add('flex');
             
@@ -879,7 +1299,43 @@ class MaintenanceSuite {
         if (modal) {
             modal.classList.remove('hidden');
             modal.classList.add('flex');
+            // Ensure app is defined globally for onclicks
+            window.app = this;
             this.setSettingsMode('edit');
+        }
+    }
+
+    closeSettingsModal() {
+        const modal = document.getElementById('modal-settings');
+        if (modal) {
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+            
+            // Navigate to logs/dashboard if shutting modal
+            if (this.currentView !== 'logs' && this.currentView !== 'dashboard') {
+                this.switchView('logs');
+            }
+        }
+    }
+
+    copyAccessCode() {
+        const idInput = document.getElementById('setting-vessel-access-code');
+        if (idInput) {
+            idInput.select();
+            document.execCommand('copy');
+            this.notifySuccess('Access Code Copied to Clipboard ✓');
+        }
+    }
+
+    togglePasscodeVisibility() {
+        const passInput = document.getElementById('setting-vessel-passcode');
+        const joinPassInput = document.getElementById('setting-join-vessel-passcode');
+        
+        if (passInput) {
+            passInput.type = passInput.type === 'password' ? 'text' : 'password';
+        }
+        if (joinPassInput) {
+            joinPassInput.type = joinPassInput.type === 'password' ? 'text' : 'password';
         }
     }
 
@@ -900,15 +1356,17 @@ class MaintenanceSuite {
             
         document.getElementById('tab-edit-vessel').className = mode === 'edit' ? styleActive : styleInactive;
         document.getElementById('tab-new-vessel').className = mode === 'new' ? styleActive : styleInactive;
+        document.getElementById('tab-join-vessel').className = mode === 'join' ? styleActive : styleInactive;
 
         // Force UI state based on onboarding necessity
         if (settingsManager.fleet.length === 0) {
-            document.getElementById('settings-tabs-container')?.classList.add('hidden');
-            document.getElementById('settings-close-btn')?.classList.add('hidden');
+            document.getElementById('settings-tabs-container')?.classList.remove('hidden');
+            document.getElementById('tab-edit-vessel')?.classList.add('opacity-50', 'pointer-events-none');
         } else {
             document.getElementById('settings-tabs-container')?.classList.remove('hidden');
-            document.getElementById('settings-close-btn')?.classList.remove('hidden');
+            document.getElementById('tab-edit-vessel')?.classList.remove('opacity-50', 'pointer-events-none');
         }
+        document.getElementById('settings-close-btn')?.classList.remove('hidden');
 
         // Reset delete buttons
         if (initDeleteBtn && confirmDeleteBtn) {
@@ -922,11 +1380,39 @@ class MaintenanceSuite {
             if (submitBtn) submitBtn.innerText = "Save Configurations";
             if (deleteContainer) deleteContainer.classList.remove('hidden');
             
-            if (nameInput) nameInput.value = settingsManager.activeVessel.name;
+            const activeVessel = settingsManager.activeVessel;
+            if (nameInput) nameInput.value = activeVessel.name;
+            const idInput = document.getElementById('setting-vessel-access-code');
+            if (idInput) idInput.value = activeVessel.access_code;
+            const passInput = document.getElementById('setting-vessel-passcode');
+            if (passInput) passInput.value = activeVessel.passcode;
+
+            document.getElementById('vessel-main-fields')?.classList.remove('hidden');
+            document.getElementById('vessel-backdrop-fields')?.classList.remove('hidden');
+            document.getElementById('settings-asset-code-container')?.classList.remove('hidden');
+            document.getElementById('join-asset-fields')?.classList.add('hidden');
+
             const preview = document.getElementById('settings-preview-img-bg');
-            if (preview) preview.style.backgroundImage = `url(${settingsManager.activeVessel.backdrop})`;
+            if (preview) preview.style.backgroundImage = `url(${settingsManager.activeVessel.backdrop_url})`;
             const fileName = document.getElementById('setting-file-name');
             if (fileName) fileName.innerText = "Click to upload image";
+        } else if (mode === 'join') {
+            if (title) title.innerText = "Join Fleet Asset";
+            if (desc) desc.innerText = "Enter the 6-digit Access Code and Secure Passcode.";
+            if (submitBtn) submitBtn.innerText = "Authenticate & Join";
+            if (deleteContainer) deleteContainer.classList.add('hidden');
+            
+            document.getElementById('vessel-main-fields')?.classList.add('hidden');
+            document.getElementById('vessel-backdrop-fields')?.classList.add('hidden');
+            document.getElementById('settings-asset-code-container')?.classList.add('hidden');
+            document.getElementById('join-asset-fields')?.classList.remove('hidden');
+
+            const preview = document.getElementById('settings-preview-img-bg');
+            if (preview) preview.style.backgroundImage = "none";
+            const fileName = document.getElementById('setting-file-name');
+            if (fileName) fileName.innerText = "Click to upload image";
+            const fileInput = document.getElementById('setting-backdrop');
+            if (fileInput) fileInput.value = "";
         } else { // mode === 'new'
             if (title) title.innerText = "Register Vessel ID";
             if (desc) desc.innerText = "Assign a unique ID and name to commission your vessel.";
@@ -937,6 +1423,11 @@ class MaintenanceSuite {
                 nameInput.value = "";
                 nameInput.placeholder = "e.g. M/Y EXPLORER";
             }
+
+            document.getElementById('vessel-main-fields')?.classList.remove('hidden');
+            document.getElementById('vessel-backdrop-fields')?.classList.remove('hidden');
+            document.getElementById('settings-asset-code-container')?.classList.add('hidden');
+            document.getElementById('join-asset-fields')?.classList.add('hidden');
             
             const preview = document.getElementById('settings-preview-img-bg');
             if (preview) preview.style.backgroundImage = "none";
@@ -956,13 +1447,7 @@ class MaintenanceSuite {
         }
     }
 
-    closeSettingsModal() {
-        const modal = document.getElementById('modal-settings');
-        if (modal) {
-            modal.classList.add('hidden');
-            modal.classList.remove('flex');
-        }
-    }
+
 
     exportData() {
         const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(this.logs, null, 2));
@@ -975,23 +1460,22 @@ class MaintenanceSuite {
     }
 
     exportToCSV() {
-        const vesselLogs = this.logs.filter(l => (l.vesselId || settingsManager.fleet[0].id) === settingsManager.activeVesselId);
+        const vesselLogs = this.logs.filter(l => l.vessel_id === settingsManager.activeVesselId);
         if (vesselLogs.length === 0) {
-            alert("No logs available for export in the current vessel.");
+            app.notifyError("No logs available for export in the current vessel.");
             return;
         }
 
-        const headers = ["Title", "Location", "Category", "Priority", "Date", "Status", "Notes", "Created By", "Completed By"];
+        const headers = ["Title", "Location", "Category", "Priority", "Date", "Status", "Notes", "Completed By"];
         const csvRows = vesselLogs.map(log => [
             `"${log.title.replace(/"/g, '""')}"`,
-            `"${log.location.replace(/"/g, '""')}"`,
+            `"${(log.location || '').replace(/"/g, '""')}"`,
             log.category,
             log.priority,
             log.timestamp,
             log.completed ? "Yes" : "No",
             `"${(log.notes || "").replace(/"/g, '""').replace(/\n/g, ' ')}"`,
-            `"${log.createdBy}"`,
-            `"${log.completedBy || 'N/A'}"`
+            `"${log.completed_by || 'N/A'}"`
         ]);
 
         // Combine headers and rows
@@ -1085,13 +1569,30 @@ class MaintenanceSuite {
         if (input.files && input.files[0]) {
             const reader = new FileReader();
             reader.onload = (e) => {
-                this.currentAlarmImage = e.target.result;
-                const previewImg = document.getElementById('alarm-preview-img');
-                const previewContainer = document.getElementById('alarm-preview-container');
-                if (previewImg && previewContainer) {
-                    previewImg.src = this.currentAlarmImage;
-                    previewContainer.classList.remove('hidden');
-                }
+                // Compress image before storing
+                const img = new Image();
+                img.onload = () => {
+                    const maxDim = 800;
+                    let w = img.width, h = img.height;
+                    if (w > maxDim || h > maxDim) {
+                        const ratio = Math.min(maxDim / w, maxDim / h);
+                        w = Math.round(w * ratio);
+                        h = Math.round(h * ratio);
+                    }
+                    const canvas = document.createElement('canvas');
+                    canvas.width = w; canvas.height = h;
+                    canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+                    this.currentAlarmImage = canvas.toDataURL('image/jpeg', 0.7);
+                    
+                    const previewImg = document.getElementById('alarm-preview-img');
+                    const previewContainer = document.getElementById('alarm-preview-container');
+                    if (previewImg && previewContainer) {
+                        previewImg.src = this.currentAlarmImage;
+                        previewContainer.classList.remove('hidden');
+                    }
+                };
+                img.src = e.target.result;
+                
                 const fileName = document.getElementById('alarm-file-name');
                 if (fileName) fileName.innerText = input.files[0].name;
             };
@@ -1099,66 +1600,79 @@ class MaintenanceSuite {
         }
     }
 
-    addAlarmEvent(formData) {
+    async addAlarmEvent(formData) {
+        if (!supabaseClient) return;
+
+        const alarmData = {
+            vessel_id: settingsManager.activeVesselId,
+            title: formData.get('title'),
+            category: formData.get('category'),
+            date: formData.get('date'),
+            time: formData.get('time'),
+            notes: formData.get('notes'),
+            image_url: this.currentAlarmImage
+        };
+
         if (this.editingAlarmId) {
-            const index = this.alarms.findIndex(a => a.id === this.editingAlarmId);
-            if (index > -1) {
-                this.alarms[index] = {
-                    ...this.alarms[index],
-                    title: formData.get('title'),
-                    category: formData.get('category'),
-                    date: formData.get('date'),
-                    time: formData.get('time'),
-                    notes: formData.get('notes'),
-                    image: this.currentAlarmImage
-                };
-            }
+            const { error } = await supabaseClient
+                .from('alarm_events')
+                .update(alarmData)
+                .eq('id', this.editingAlarmId);
+            
+            if (error) app.notifyError("Update failed: " + error.message);
             this.editingAlarmId = null;
         } else {
-            const entry = {
-                id: 'alarm_' + Date.now(),
-                vesselId: settingsManager.activeVesselId,
-                title: formData.get('title'),
-                category: formData.get('category'),
-                date: formData.get('date'),
-                time: formData.get('time'),
-                notes: formData.get('notes'),
-                image: this.currentAlarmImage,
-                loggedBy: auth.currentUser.name,
-                loggedAt: new Date().toISOString(),
-                acknowledged: false,
-                acknowledgedBy: null
-            };
-            this.alarms.unshift(entry);
+            const { error } = await supabaseClient
+                .from('alarm_events')
+                .insert([{ ...alarmData, logged_by: auth.currentUser.name }]);
+            
+            if (error) app.notifyError("Alert recording failed: " + error.message);
         }
 
-        this.saveAlarms();
+        await this.reloadData();
         this.closeAlarmModal();
         if (this.currentView === 'alarms') this.renderAlarms();
         
         // Notify user
-        this.notifyAlarmSaved();
+        this.notifySuccess(this.editingAlarmId ? 'Alarm Event Updated ✓' : 'Safety Alarm Registered ✓');
     }
 
     editAlarm(id) {
         this.openAlarmModal(id);
     }
 
-    toggleAcknowledgeAlarm(id) {
+    async toggleAcknowledgeAlarm(id) {
         const alarm = this.alarms.find(a => a.id === id);
         if (alarm) {
-            alarm.acknowledged = !alarm.acknowledged;
-            alarm.acknowledgedBy = alarm.acknowledged ? auth.currentUser.name : null;
-            this.saveAlarms();
-            this.renderAlarms();
+            const newStatus = !alarm.acknowledged;
+            const { error } = await supabaseClient
+                .from('alarm_events')
+                .update({ 
+                    acknowledged: newStatus,
+                    acknowledged_by: newStatus ? auth.currentUser.name : null 
+                })
+                .eq('id', id);
+
+            if (error) app.notifyError("Acknowledgment failed: " + error.message);
+            await this.reloadData();
+            if (this.currentView === 'alarms') this.renderAlarms();
+            this.updateDashboard();
         }
     }
 
-    deleteAlarm(id) {
-        if (confirm("Permanently purge this alarm event?")) {
-            this.alarms = this.alarms.filter(a => a.id !== id);
-            this.saveAlarms();
-            this.renderAlarms();
+
+
+    async deleteAlarm(id) {
+        if (confirm("🚨 DATA PURGE: Securely delete this alarm record?")) {
+            const { error } = await supabaseClient
+                .from('alarm_events')
+                .delete()
+                .eq('id', id);
+
+            if (error) app.notifyError("Purge failed: " + error.message);
+            await this.reloadData();
+            if (this.currentView === 'alarms') this.renderAlarms();
+            this.updateDashboard();
         }
     }
 
@@ -1166,7 +1680,24 @@ class MaintenanceSuite {
         const list = document.getElementById('alarm-list');
         if (!list) return;
 
-        const filtered = this.alarms.filter(a => a.vesselId === settingsManager.activeVesselId);
+        // Update alarm badge on sidebar nav
+        const unacknowledgedCount = this.alarms.filter(a => !a.acknowledged).length;
+        const alarmNavBtn = document.querySelector('.nav-btn[data-view="alarms"]');
+        if (alarmNavBtn) {
+            let badge = alarmNavBtn.querySelector('.alarm-badge-count');
+            if (unacknowledgedCount > 0) {
+                if (!badge) {
+                    badge = document.createElement('span');
+                    badge.className = 'alarm-badge-count ml-auto px-2 py-0.5 rounded-full bg-rose-600 text-white text-[9px] font-black';
+                    alarmNavBtn.appendChild(badge);
+                }
+                badge.innerText = unacknowledgedCount;
+            } else if (badge) {
+                badge.remove();
+            }
+        }
+
+        const filtered = this.getFilteredAlarms();
         
         if (filtered.length === 0) {
             list.innerHTML = `
@@ -1180,9 +1711,9 @@ class MaintenanceSuite {
 
         list.innerHTML = filtered.map(alarm => `
             <div class="glass-compact rounded-[32px] overflow-hidden border border-white/5 hover:border-rose-600/30 transition-all group scale-in shadow-2xl">
-                ${alarm.image ? `
+                ${alarm.image_url ? `
                     <div class="h-48 relative overflow-hidden">
-                        <img src="${alarm.image}" class="w-full h-full object-cover group-hover:scale-110 transition-all duration-700">
+                        <img src="${alarm.image_url}" class="w-full h-full object-cover group-hover:scale-110 transition-all duration-700">
                         <div class="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent"></div>
                         <div class="absolute bottom-4 left-6">
                             <span class="px-3 py-1 rounded-full bg-rose-600 text-white text-[8px] font-black uppercase tracking-widest">${alarm.category}</span>
@@ -1218,9 +1749,17 @@ class MaintenanceSuite {
                     
                     <div class="pt-6 border-t border-white/5 flex items-center justify-between">
                         <div class="flex items-center gap-2">
-                            <div class="w-6 h-6 rounded-full bg-white/5 flex items-center justify-center text-azure font-black italic text-[8px]">${alarm.loggedBy[0]}</div>
-                            <span class="text-[9px] text-slate-500 font-black uppercase tracking-widest">${alarm.loggedBy}</span>
+                            <div class="w-6 h-6 rounded-full bg-white/5 flex items-center justify-center text-azure font-black italic text-[8px]">${alarm.logged_by ? alarm.logged_by[0] : 'U'}</div>
+                            <span class="text-[9px] text-slate-500 font-black uppercase tracking-widest">${alarm.logged_by || 'Unknown'}</span>
                         </div>
+                        ${alarm.acknowledged ? `
+                            <div class="flex items-center gap-2">
+                                <span class="text-[8px] text-azure font-black uppercase tracking-widest">Acknowledged by ${alarm.acknowledged_by}</span>
+                                <svg class="w-3 h-3 text-azure" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path></svg>
+                            </div>
+                        ` : `
+                            <button onclick="app.toggleAcknowledgeAlarm('${alarm.id}')" class="text-[8px] font-black uppercase tracking-widest text-slate-500 hover:text-white transition-all">Mark Resolved</button>
+                        `}
                     </div>
                 </div>
             </div>
@@ -1240,16 +1779,37 @@ class MaintenanceSuite {
     }
 
     notifySave() {
-        // ...Existing notifySave logic
+        this.notifySuccess('Vessel Profile Saved ✓');
+    }
+    
+    notifySuccess(message) {
         const toast = document.createElement('div');
         toast.className = 'fixed bottom-8 right-8 bg-green-500 text-white px-6 py-4 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-2xl z-[500] animate-fade-in sm:px-8';
-        toast.innerText = 'Vessel Profile Saved ✓';
+        toast.innerText = message;
         document.body.appendChild(toast);
         setTimeout(() => {
             toast.style.opacity = '0';
             toast.style.transition = 'opacity 0.5s ease';
             setTimeout(() => toast.remove(), 500);
         }, 3000);
+    }
+
+    notifyError(message) {
+        const toast = document.createElement('div');
+        toast.className = 'fixed bottom-8 right-8 bg-rose-600 text-white px-6 py-4 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-2xl z-[600] animate-fade-in sm:px-8 border-2 border-white/20';
+        toast.innerHTML = `
+            <div class="flex items-center gap-3">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M6 18L18 6M6 6l12 12"></path></svg>
+                <span>${message}</span>
+            </div>
+        `;
+        document.body.appendChild(toast);
+        // Error toasts stay longer
+        setTimeout(() => {
+            toast.style.opacity = '0';
+            toast.style.transition = 'opacity 0.5s ease';
+            setTimeout(() => toast.remove(), 500);
+        }, 6000);
     }
 }
 
@@ -1264,6 +1824,34 @@ const app = new MaintenanceSuite();
 window.addEventListener('load', () => {
     const ctx = document.getElementById('statusChart');
     if (ctx && typeof Chart !== 'undefined') {
+        // Center text plugin for percentage display
+        const centerTextPlugin = {
+            id: 'centerText',
+            afterDraw(chart) {
+                const { width, height, ctx: c } = chart;
+                c.save();
+                const data = chart.data.datasets[0].data;
+                const total = data.reduce((a, b) => a + b, 0);
+                const completed = data[0] || 0;
+                const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
+                
+                // Draw label
+                c.font = 'black 10px Outfit';
+                c.fillStyle = '#64748b'; // slate-500
+                c.textAlign = 'center';
+                c.textBaseline = 'middle';
+                c.letterSpacing = '2px';
+                c.fillText('READINESS', width / 2, height / 2 - 18);
+                
+                // Draw Percentage
+                c.font = 'bold 32px Outfit';
+                c.fillStyle = '#ffffff';
+                c.letterSpacing = '0px';
+                c.fillText(pct + '%', width / 2, height / 2 + 10);
+                c.restore();
+            }
+        };
+        
         window.myChart = new Chart(ctx, {
             type: 'doughnut',
             data: {
@@ -1284,13 +1872,14 @@ window.addEventListener('load', () => {
                     tooltip: {
                         enabled: true,
                         backgroundColor: '#0a192f',
-                        titleFont: { family: 'General Sans', weight: 'bold' },
-                        bodyFont: { family: 'General Sans' },
+                        titleFont: { family: 'Outfit', weight: 'bold' },
+                        bodyFont: { family: 'Inter' },
                         padding: 12,
                         cornerRadius: 16
                     }
                 }
-            }
+            },
+            plugins: [centerTextPlugin]
         });
         app.updateDashboard();
     }
