@@ -8,7 +8,7 @@
     <!-- Settings Overlay -->
     <div id="modal-settings" class="fixed inset-0 z-[250] hidden items-center justify-center p-4 sm:p-6">
         <div class="absolute inset-0 bg-[#050b14]/90 backdrop-blur-sm" onclick="app.closeSettingsModal()"></div>
-        <div class="relative w-full max-w-lg glass-modal rounded-[40px] p-8 sm:p-12 shadow-2xl reveal border border-white/10">
+        <div class="relative w-full max-w-lg glass-modal rounded-[40px] p-8 sm:p-12 shadow-2xl reveal border border-white/10 max-h-[90vh] overflow-y-auto">
             <button id="settings-close-btn" onclick="app.closeSettingsModal()" class="absolute top-8 right-8 text-slate-500 hover:text-white transition-colors bg-white/5 hover:bg-white/10 p-3 rounded-2xl">
                 <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
             </button>
@@ -126,6 +126,9 @@
             darkMode: 'class',
             theme: {
                 extend: {
+                    screens: {
+                        'xs': '400px',
+                    },
                     colors: {
                         deepNavy: '#0a192f',
                         azure: '#3b82f6',
@@ -235,33 +238,34 @@
     <main class="lg:ml-72 pb-28 lg:pb-0 relative z-10">
         
         <!-- Premium Header Area -->
-        <header class="sticky top-0 z-20 p-4 sm:p-6 flex flex-col gap-4 glass-header mb-8">
-            <!-- Mobile Header Controls (Visible only on lg-) -->
-            <div class="lg:hidden relative overflow-hidden rounded-[28px] p-6 border border-white/5 group/mobile-header mb-4">
+        <header class="sticky top-0 z-20 p-3 sm:p-6 flex flex-col gap-3 glass-header mb-4 lg:mb-8">
+            <!-- Mobile Command Center (Visible only on lg-) -->
+            <div class="lg:hidden relative overflow-hidden rounded-[24px] p-4 border border-white/5 group/mobile-header mb-2 transition-all">
                 <!-- Mobile Backdrop -->
                 <div class="absolute inset-0 z-0 bg-[#050b14]">
-                    <img src="" alt="Marine Backdrop" class="w-full h-full object-cover opacity-50 transition-all duration-700 hidden">
-                    <div class="absolute inset-0 bg-gradient-to-b from-[#050b14]/60 to-[#050b14]"></div>
+                    <div class="absolute inset-0 bg-gradient-to-b from-[#0a192f]/40 to-[#050b14]"></div>
                 </div>
 
-                <div class="relative z-10 flex flex-col sm:flex-row items-start sm:items-center gap-4 w-full justify-between pb-4 border-b border-white/5">
+                <div class="relative z-10 flex items-center justify-between w-full">
                     <div class="flex items-center gap-3">
-                        <div id="user-avatar-mobile" class="w-10 h-10 rounded-full bg-azure/20 flex items-center justify-center text-azure font-black italic">U</div>
-                        <div>
-                            <p id="mobile-user-name" class="text-xs font-bold text-white uppercase italic">Guest User</p>
-                            <button onclick="auth.logout()" class="text-[9px] text-slate-500 hover:text-red-400 font-black uppercase tracking-widest transition-all">Sign Out</button>
+                        <div id="user-avatar-mobile" class="w-8 h-8 rounded-full bg-azure/20 flex items-center justify-center text-azure font-black italic text-xs">U</div>
+                        <div class="flex flex-col">
+                            <span id="mobile-vessel-name-display" class="text-[10px] font-black italic text-azure uppercase tracking-wider leading-none">M/Y EXPLORER</span>
+                            <p id="mobile-user-name" class="text-[9px] font-bold text-slate-400 uppercase italic opacity-60">Guest User</p>
                         </div>
                     </div>
-                    <button onclick="app.openSettingsModal()" class="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-slate-400 hover:text-white transition-all shadow-lg">
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
-                    </button>
-                </div>
-                <div class="w-full sm:w-auto">
-                    <div class="flex flex-col">
-                        <span id="mobile-vessel-name-display" class="text-xs font-black italic text-azure uppercase tracking-tight mb-1">M/Y EXPLORER</span>
-                        <div class="vessel-selector-container w-full min-w-[200px]"></div>
+                    
+                    <div class="flex items-center gap-2">
+                        <button onclick="app.openSettingsModal()" class="w-9 h-9 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-slate-400 hover:text-white transition-all">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                        </button>
+                        <button onclick="auth.logout()" class="w-9 h-9 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-slate-500 hover:text-red-400 transition-all">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path></svg>
+                        </button>
                     </div>
                 </div>
+                
+                <div class="mt-3 vessel-selector-container w-full"></div>
             </div>
 
             <!-- Search + Actions Row -->
@@ -274,21 +278,21 @@
                     <input id="search-input" type="text" placeholder="Filter through asset logs..." class="w-full bg-slate-900/40 border border-white/10 rounded-[24px] py-4 pl-14 pr-6 text-sm focus:outline-none focus:ring-2 focus:ring-azure/40 focus:border-azure/60 transition-all font-medium">
                 </div>
                 
-                <div class="flex items-center gap-3 flex-shrink-0">
-                    <button onclick="app.openModal()" class="bg-azure hover:bg-blue-600 text-white px-6 py-4 rounded-[24px] font-bold shadow-2xl shadow-azure/30 transition-all flex items-center gap-2 hover:-translate-y-0.5 active:translate-y-0 text-xs whitespace-nowrap">
-                        <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
-                        New Entry
+                <div class="flex flex-row items-center gap-2 flex-shrink-0">
+                    <button onclick="app.openModal()" class="flex-1 bg-azure hover:bg-blue-600 text-white px-4 py-3 rounded-2xl font-bold shadow-lg shadow-azure/20 transition-all flex items-center justify-center gap-2 active:scale-95 text-[10px] uppercase tracking-widest italic outline-none">
+                        <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M12 4v16m8-8H4"></path></svg>
+                        Entry
                     </button>
-                    <button onclick="app.openAlarmModal()" class="bg-rose-600 hover:bg-rose-700 text-white px-6 py-4 rounded-[24px] font-bold shadow-2xl shadow-rose-600/30 transition-all flex items-center gap-2 hover:-translate-y-0.5 active:translate-y-0 text-xs whitespace-nowrap">
-                        <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
-                        New Alarm
+                    <button onclick="app.openAlarmModal()" class="flex-1 bg-rose-600 hover:bg-rose-700 text-white px-4 py-3 rounded-2xl font-bold shadow-lg shadow-rose-600/20 transition-all flex items-center justify-center gap-2 active:scale-95 text-[10px] uppercase tracking-widest italic outline-none">
+                        <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+                        Alarm
                     </button>
                 </div>
             </div>
         </header>
 
         <!-- Dynamic Content: Logs View -->
-        <div id="view-logs" class="p-8 max-w-6xl mx-auto space-y-10 reveal">
+        <div id="view-logs" class="p-4 sm:p-8 max-w-6xl mx-auto space-y-4 sm:space-y-10 reveal">
             
             <div class="flex overflow-x-auto gap-2 mb-8 pb-2 scrollbar-none">
                 <button data-category="All" class="filter-btn flex-shrink-0 px-5 py-2.5 rounded-2xl bg-azure text-white text-xs font-bold shadow-lg shadow-azure/20 transition-all">All Operations</button>
@@ -423,8 +427,8 @@
     </nav>
 
     <!-- Ultra-Modern Entry Modal -->
-    <div id="modal-new-entry" class="hidden fixed inset-0 z-[100] bg-black/80 backdrop-blur-xl animate-fade-in items-center justify-center p-6">
-        <div class="glass-modal max-w-2xl w-full rounded-[48px] p-12 relative border border-white/10 shadow-[0_0_100px_rgba(59,130,246,0.1)]">
+    <div id="modal-new-entry" class="hidden fixed inset-0 z-[100] bg-black/80 backdrop-blur-xl animate-fade-in items-center justify-center p-4 sm:p-6">
+        <div class="glass-modal max-w-2xl w-full rounded-[48px] p-8 sm:p-12 relative border border-white/10 shadow-[0_0_100px_rgba(59,130,246,0.1)] max-h-[90vh] overflow-y-auto">
             <button onclick="app.closeModal()" class="absolute top-10 right-10 p-3 rounded-full bg-white/5 hover:bg-white/10 transition-all text-slate-400 hover:text-white active:scale-90">
                 <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
             </button>
@@ -485,9 +489,9 @@
     </div>
 
     <!-- Alarm Event Modal -->
-    <div id="modal-alarm-entry" class="hidden fixed inset-0 z-[100] bg-black/80 backdrop-blur-xl animate-fade-in items-center justify-center p-6">
-        <div class="glass-modal max-w-2xl w-full rounded-[48px] p-12 relative border border-white/10 shadow-[0_0_100px_rgba(225,29,72,0.1)]">
-            <button onclick="app.closeAlarmModal()" class="absolute top-10 right-10 p-3 rounded-full bg-white/5 hover:bg-white/10 transition-all text-slate-400 hover:text-white active:scale-90">
+    <div id="modal-alarm-entry" class="hidden fixed inset-0 z-[100] bg-black/80 backdrop-blur-xl animate-fade-in items-center justify-center p-4 sm:p-6">
+        <div class="glass-modal max-w-2xl w-full rounded-[48px] p-8 sm:p-12 relative border border-white/10 shadow-[0_0_100px_rgba(225,29,72,0.1)] max-h-[90vh] overflow-y-auto">
+            <button onclick="app.closeAlarmModal()" class="absolute top-8 right-8 sm:top-10 sm:right-10 p-3 rounded-full bg-white/5 hover:bg-white/10 transition-all text-slate-400 hover:text-white active:scale-90 z-20">
                 <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
             </button>
             
@@ -597,7 +601,7 @@
     </div>
 
     <!-- Landing Page Overlay -->
-    <div id="landing-overlay" class="fixed inset-0 z-[300] bg-[#050b14] overflow-hidden flex items-center justify-center p-6 sm:p-12">
+    <div id="landing-overlay" class="fixed inset-0 z-[300] bg-[#050b14] overflow-y-auto flex items-center justify-center p-4 sm:p-12">
         <!-- Ambient Background -->
         <div class="absolute inset-0 z-0">
             <img src="./assets/backdrop.jpg" alt="Landing Backdrop" class="w-full h-full object-cover opacity-20 scale-110 animate-pulse-slow">
@@ -606,14 +610,14 @@
 
         <div class="relative z-10 max-w-4xl w-full text-center space-y-12 reveal">
             <header class="space-y-6">
-                <div class="w-24 h-24 rounded-[40px] bg-[#0a192f] border border-white/20 backdrop-blur-3xl overflow-hidden flex items-center justify-center mx-auto shadow-[0_0_80px_rgba(59,130,246,0.3)]">
+                <div class="w-20 h-20 sm:w-24 sm:h-24 rounded-[32px] sm:rounded-[40px] bg-[#0a192f] border border-white/20 backdrop-blur-3xl overflow-hidden flex items-center justify-center mx-auto shadow-[0_0_80px_rgba(59,130,246,0.2)]">
                     <img src="./assets/branding/logo.png" alt="DIG Logo" class="w-full h-full object-cover">
                 </div>
                 <div>
-                    <h1 class="text-6xl sm:text-8xl font-black italic tracking-tighter text-white uppercase leading-[0.8] drop-shadow-2xl">
-                        DIG<br>Yacht Management<br><span class="text-azure italic">Software</span>
+                    <h1 class="text-4xl xs:text-5xl sm:text-7xl md:text-8xl font-black italic tracking-tighter text-white uppercase leading-[0.9] drop-shadow-2xl">
+                        Yacht Management<br><span class="text-azure italic">Software</span>
                     </h1>
-                    <p class="mt-8 text-slate-400 font-bold uppercase tracking-[0.4em] text-xs sm:text-sm opacity-60">High-Performance Maritime Operations</p>
+                    <p class="mt-4 sm:mt-8 text-slate-400 font-bold uppercase tracking-[0.2em] sm:tracking-[0.4em] text-[10px] sm:text-sm opacity-60">High-Performance Maritime Operations</p>
                 </div>
             </header>
 
