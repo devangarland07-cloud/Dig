@@ -580,14 +580,20 @@ class MaintenanceSuite {
 
                     <p class="text-slate-400 text-xs leading-relaxed font-medium mb-8 line-clamp-3">${log.notes || 'No technical notes recorded.'}</p>
 
-                    <div class="pt-6 border-t border-white/5 flex items-center justify-between">
+                    <div class="pt-6 border-t border-white/5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                         <div class="flex items-center gap-2">
-                            <div class="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center text-azure font-black italic text-[10px]">${log.completed_by ? log.completed_by[0] : 'U'}</div>
-                            <span class="text-[10px] text-slate-500 font-black uppercase tracking-widest">${log.completed_by || 'Logged Asset'}</span>
+                            <div class="w-8 h-8 rounded-full bg-azure/10 border border-azure/20 flex items-center justify-center text-azure font-black italic text-[10px]">${log.logged_by ? log.logged_by[0] : 'U'}</div>
+                            <div class="flex flex-col">
+                                <span class="text-[8px] text-slate-500 font-bold uppercase tracking-widest leading-none mb-1">Logged By</span>
+                                <span class="text-[10px] text-white font-black uppercase tracking-widest">${log.logged_by || 'Unknown Officer'}</span>
+                            </div>
                         </div>
-                        <button onclick="app.toggleComplete('${log.id}')" class="flex items-center gap-3 group/cb">
-                            <span class="text-[10px] font-black uppercase tracking-widest ${log.completed ? 'text-green-500' : 'text-slate-500 hover:text-white'} transition-all">${log.completed ? 'Status: Operational ✓' : 'Status: Pending Action'}</span>
-                            <div class="w-6 h-6 rounded-xl border-2 ${log.completed ? 'border-green-500 bg-green-500' : 'border-white/10'} flex items-center justify-center transition-all">
+                        <button onclick="app.toggleComplete('${log.id}')" class="flex items-center justify-between sm:justify-end gap-3 group/cb bg-white/5 sm:bg-transparent p-3 sm:p-0 rounded-2xl">
+                            <div class="flex flex-col items-end text-right">
+                                <span class="text-[8px] text-slate-500 font-bold uppercase tracking-widest leading-none mb-1">Status Check</span>
+                                <span class="text-[10px] font-black uppercase tracking-widest ${log.completed ? 'text-green-500' : 'text-slate-400 group-hover/cb:text-white'} transition-all">${log.completed ? `Operational ✓ by ${log.completed_by}` : 'Pending Action'}</span>
+                            </div>
+                            <div class="w-6 h-6 rounded-xl border-2 ${log.completed ? 'border-green-500 bg-green-500 shadow-[0_0_15px_rgba(34,197,94,0.3)]' : 'border-white/10'} flex items-center justify-center transition-all">
                                 ${log.completed ? '<svg class="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path></svg>' : ''}
                             </div>
                         </button>
@@ -686,10 +692,13 @@ class MaintenanceSuite {
             category: formData.get('category'),
             priority: formData.get('priority'),
             timestamp: formData.get('date'),
-            notes: formData.get('notes')
+            notes: formData.get('notes'),
+            logged_by: auth.currentUser.name
         };
 
         if (this.editingLogId) {
+            // Remove logged_by from update to preserve original creator
+            delete logData.logged_by;
             const { error } = await supabaseClient
                 .from('maintenance_logs')
                 .update(logData)
@@ -1748,18 +1757,26 @@ class MaintenanceSuite {
                     <p class="text-slate-400 text-xs leading-relaxed font-medium mb-6 line-clamp-3">${alarm.notes || 'No description provided'}</p>
                     
                     <div class="pt-6 border-t border-white/5 flex items-center justify-between">
+                    <div class="pt-6 border-t border-white/5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                         <div class="flex items-center gap-2">
-                            <div class="w-6 h-6 rounded-full bg-white/5 flex items-center justify-center text-azure font-black italic text-[8px]">${alarm.logged_by ? alarm.logged_by[0] : 'U'}</div>
-                            <span class="text-[9px] text-slate-500 font-black uppercase tracking-widest">${alarm.logged_by || 'Unknown'}</span>
+                            <div class="w-6 h-6 rounded-full bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-500 font-black italic text-[10px]">${alarm.logged_by ? alarm.logged_by[0] : 'U'}</div>
+                            <div class="flex flex-col">
+                                <span class="text-[8px] text-slate-500 font-bold uppercase tracking-widest leading-none mb-1">Logged By</span>
+                                <span class="text-[10px] text-white font-black uppercase tracking-widest">${alarm.logged_by || 'Unknown'}</span>
+                            </div>
                         </div>
                         ${alarm.acknowledged ? `
-                            <div class="flex items-center gap-2">
-                                <span class="text-[8px] text-azure font-black uppercase tracking-widest">Acknowledged by ${alarm.acknowledged_by}</span>
-                                <svg class="w-3 h-3 text-azure" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path></svg>
+                            <div class="flex items-center justify-between sm:justify-end gap-3 bg-azure/5 sm:bg-transparent p-3 sm:p-0 rounded-2xl">
+                                <div class="flex flex-col items-end text-right">
+                                    <span class="text-[8px] text-slate-500 font-bold uppercase tracking-widest leading-none mb-1">Accountability</span>
+                                    <span class="text-[10px] text-azure font-black uppercase tracking-widest">Acknowledged by ${alarm.acknowledged_by}</span>
+                                </div>
+                                <svg class="w-4 h-4 text-azure" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path></svg>
                             </div>
                         ` : `
-                            <button onclick="app.toggleAcknowledgeAlarm('${alarm.id}')" class="text-[8px] font-black uppercase tracking-widest text-slate-500 hover:text-white transition-all">Mark Resolved</button>
+                            <button onclick="app.toggleAcknowledgeAlarm('${alarm.id}')" class="bg-rose-500 hover:bg-rose-600 px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest text-white transition-all active:scale-95 shadow-lg shadow-rose-500/20">Mark Resolved</button>
                         `}
+                    </div>
                     </div>
                 </div>
             </div>
