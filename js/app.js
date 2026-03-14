@@ -428,12 +428,16 @@ class SettingsManager {
     renderVesselSelector() {
         const selectorContainers = document.querySelectorAll('.vessel-selector-container');
         selectorContainers.forEach(container => {
+            const isMini = container.classList.contains('mobile-selector-mini');
             const hasActiveVessel = this.fleet.length > 0;
             const options = this.fleet.map(v => `<option value="${v.id}" ${v.id === this.activeVesselId ? 'selected' : ''}>${v.name}</option>`).join('');
             
+            const baseClasses = "form-input bg-white/5 border-white/10 text-white font-bold italic py-2 px-3 text-sm mt-1 cursor-pointer truncate shadow-xl outline-none";
+            const mobileClasses = "bg-transparent border-none text-azure/80 text-[10px] py-1 px-0 mt-0 font-black tracking-widest uppercase hover:text-white transition-all";
+            
             container.innerHTML = `
-                <select onchange="settingsManager.switchVessel(this.value)" class="form-input bg-white/5 border-white/10 text-white font-bold italic w-full py-2 px-3 text-sm mt-1 cursor-pointer truncate max-w-[180px]">
-                    ${!hasActiveVessel ? `<option value="" disabled selected>+ Register New Asset</option>` : ''}
+                <select onchange="settingsManager.switchVessel(this.value)" class="${isMini ? mobileClasses : baseClasses} ${!isMini ? 'w-full max-w-[180px]' : 'w-auto'}">
+                    ${!hasActiveVessel ? `<option value="" disabled selected>+ Add Asset</option>` : ''}
                     ${options}
                     ${hasActiveVessel ? `<option disabled>──────────</option>` : ''}
                     <option value="add_new">+ Register New Asset</option>
