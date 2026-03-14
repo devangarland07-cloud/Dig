@@ -411,16 +411,18 @@ class SettingsManager {
             if (el) el.innerText = vessel.name;
         });
 
-        const sidebarBackdrop = document.getElementById('sidebar-backdrop');
-        if (sidebarBackdrop) {
-            if (vessel.backdrop_url) {
-                sidebarBackdrop.style.backgroundImage = `url(${vessel.backdrop_url})`;
-                sidebarBackdrop.classList.remove('opacity-0');
-            } else {
-                sidebarBackdrop.style.backgroundImage = 'none';
-                sidebarBackdrop.classList.add('opacity-0');
+        const backdrops = document.querySelectorAll('#sidebar-backdrop, #mobile-backdrop');
+        backdrops.forEach(el => {
+            if (el) {
+                if (vessel.backdrop_url) {
+                    el.style.backgroundImage = `url(${vessel.backdrop_url})`;
+                    el.classList.remove('opacity-0');
+                } else {
+                    el.style.backgroundImage = 'none';
+                    el.classList.add('opacity-0');
+                }
             }
-        }
+        });
     }
     
     renderVesselSelector() {
