@@ -406,7 +406,7 @@ class SettingsManager {
 
     applySettings() {
         const vessel = this.activeVessel;
-        const nameElements = document.querySelectorAll('#sidebar-vessel-name, #mobile-vessel-name');
+        const nameElements = document.querySelectorAll('#sidebar-vessel-name, #mobile-vessel-name-display');
         nameElements.forEach(el => {
             if (el) el.innerText = vessel.name;
         });
@@ -530,7 +530,7 @@ class MaintenanceSuite {
                 <div class="col-span-full py-32 flex flex-col items-center justify-center text-slate-600">
                     <svg class="w-16 h-16 mb-4 opacity-20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path></svg>
                     <p class="font-black italic uppercase tracking-widest text-sm">No Maintenance History Recorded</p>
-                    <p class="text-xs text-slate-500 mt-2">Press <kbd class="px-2 py-1 rounded bg-white/5 border border-white/10 text-azure font-mono text-[10px]">N</kbd> to create your first entry</p>
+                    <p class="hidden md:block text-xs text-slate-500 mt-2">Press <kbd class="px-2 py-1 rounded bg-white/5 border border-white/10 text-azure font-mono text-[10px]">N</kbd> to create your first entry</p>
                 </div>
             `;
             return;
