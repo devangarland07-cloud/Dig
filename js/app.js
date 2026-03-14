@@ -509,11 +509,6 @@ class MaintenanceSuite {
         this.logs.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
     }
 
-    sortLogs() {
-        // Precise string-based sorting for YYYY-MM-DD
-        this.logs.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
-    }
-
     /**
      * Intelligence: Filters & Search
      */
